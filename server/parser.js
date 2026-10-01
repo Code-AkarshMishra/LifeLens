@@ -50,12 +50,19 @@ function parseDeadline(sentence, now = new Date()) {
 }
 
 function splitSentences(text) {
-  return text.match(/[^.!?]+(?:[.!?]+|$)/g)?.map((sentence) => sentence.trim()).filter(Boolean) || [];
+  return text
+    .split(/(?<=[.!?])\s+|[\r\n]+/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
 }
 
 function analyzeNotice(text, role = "Student") {
   const sentences = splitSentences(text);
   const actions = [];
+  const actionRoots = (sentence) => {
+    const matches = sentence.match(/\b(register(?:ed|ing)?|registration|submit(?:ted|ting)?|pay(?:ing|ment)?|renew(?:ed|al|ing)?|apply|application|attend(?:ed|ing|ance)?)\b/gi) || [];
+    return new Set(matches.map((word) => word.toLowerCase().replace(/registration|registered|registering/g, "register")));
+  };
   for (const sentence of sentences) {
     const deadline = parseDeadline(sentence);
     const actionable = ACTION_WORDS.test(sentence);
@@ -64,7 +71,11 @@ function analyzeNotice(text, role = "Student") {
     if (/\b(?:who|that)\s+(?:do not|don't|does not|doesn't|did not|didn't)\s+(?:submit|send|pay|register|complete|provide|upload|attend|respond|reply|renew|bring|return|contact|schedule|book|apply|collect|visit|sign|fill|ensure)\b/i.test(sentence)) continue;
     if (CONSEQUENCE_WORDS.test(sentence) && /^\s*(?:failing|failure)\s+to\s+(?:submit|send|pay|register|complete|provide|upload|attend|respond|reply|renew|bring|return|contact|schedule|book|apply|collect|visit|sign|fill)\b/i.test(sentence)) continue;
     const highPriority = /\b(urgent|immediately|as soon as possible|within\s+\d+\s+days|deadline|must|required)\b/i.test(sentence);
-    const consequenceSentence = sentences.find((item) => CONSEQUENCE_WORDS.test(item));
+    const roots = actionRoots(sentence);
+    const consequenceSentence = sentences.find((item) =>
+      CONSEQUENCE_WORDS.test(item)
+      && [...roots].some((root) => actionRoots(item).has(root))
+    );
     const consequenceEvidence = CONSEQUENCE_WORDS.test(sentence) ? sentence : (consequenceSentence || null);
     const consequence = consequenceEvidence || "No consequence is explicitly stated in this notice.";
     actions.push({

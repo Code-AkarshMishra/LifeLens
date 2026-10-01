@@ -1,6 +1,5 @@
 const db = require("./db");
 const mailer = require("./mailer");
-const whatsapp = require("./whatsapp");
 
 async function sendDueReminders() {
   const tomorrow = new Date();
@@ -8,18 +7,13 @@ async function sendDueReminders() {
   const tasks = await db.getDueTasks(tomorrow.toISOString().slice(0, 10));
   for (const task of tasks) {
     for (const [channel, enabled, sender] of [
-      ["email", task.owner.emailReminders, mailer.sendReminder],
-      ["whatsapp", task.owner.whatsappReminders, whatsapp.sendReminder]
+      ["email", task.owner.emailReminders, mailer.sendReminder]
     ]) {
       const previous = task.reminders?.[channel] || {};
       if (previous.sentAt || previous.status === "sent") continue;
       const attemptedAt = new Date().toISOString();
       if (!enabled) {
         await db.markReminder(task.ownerId, task.id, channel, { status: "opted_out", attemptedAt });
-        continue;
-      }
-      if (channel === "whatsapp" && !task.owner.phoneVerified) {
-        await db.markReminder(task.ownerId, task.id, channel, { status: "phone_unverified", attemptedAt });
         continue;
       }
       if (!await db.claimReminder(task.ownerId, task.id, channel)) continue;

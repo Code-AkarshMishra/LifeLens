@@ -37,7 +37,7 @@
             <label class="form-field">Password<input name="password" type="password" autocomplete="current-password" required minlength="8" maxlength="128"></label>
             <button id="auth-submit" class="analyze-button" type="submit"><span>Sign in</span><span aria-hidden="true">→</span></button>
           </form>
-          <p class="privacy-note">Email is not verified. SMS phone verification only confirms your reminder destination; it is not a sign-in factor.</p>
+          <p class="privacy-note">Email reminders are supported. Phone reminders are paused for now; email verification is not enabled.</p>
           <p id="auth-error" class="error-message" role="alert" hidden></p>
         </section>
         <section id="account-panel" class="account-panel" hidden aria-label="Reminder preferences">
@@ -45,23 +45,11 @@
             <div><span class="step">02</span><h2 id="account-name"></h2><p id="account-destinations" class="account-destinations"></p></div>
             <button id="logout-button" class="text-button" type="button">Sign out</button>
           </div>
-          <section class="phone-verification" aria-labelledby="phone-verification-title">
-            <strong id="phone-verification-title">Verify your phone for WhatsApp</strong>
-            <p id="phone-verification-status" class="preferences-status" role="status">Phone number is not verified.</p>
-            <form id="send-code-form">
-              <label class="sms-consent"><input id="sms-consent" type="checkbox"> I agree to receive a one-time SMS verification code at my saved phone number. Message/data rates may apply. This is separate from WhatsApp reminder consent.</label>
-              <button id="send-code-button" class="text-button" type="submit">Send verification code by SMS</button>
-            </form>
-            <form id="verify-code-form" hidden>
-              <label class="form-field">Verification code<input id="verification-code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{4,10}" maxlength="10" required></label>
-              <button id="verify-code-button" class="text-button" type="submit">Verify phone number</button>
-            </form>
-          </section>
           <form id="preferences-form" class="preferences-form">
             <strong>Reminder preferences</strong>
             <label><input id="email-reminders" type="checkbox"> Email reminders to your account email</label>
-            <label><input id="whatsapp-reminders" type="checkbox"> WhatsApp reminders to your account phone</label>
-            <p class="reminder-consent">WhatsApp reminders remain off until you separately opt in here. Delivery requires a verified phone and an approved Twilio sender; approved templates may be required outside an active conversation window or in some countries.</p>
+            <label class="disabled-preference"><input id="whatsapp-reminders" type="checkbox" disabled> WhatsApp reminders (temporarily unavailable)</label>
+            <p class="reminder-consent">Email reminders are available when SMTP is configured. SMS phone verification and WhatsApp reminders are temporarily paused.</p>
             <button class="text-button" type="submit">Save preferences</button>
             <p id="preferences-status" class="preferences-status" role="status"></p>
           </form>
@@ -71,6 +59,13 @@
             <div><span class="step">03</span><h2>Your notice</h2></div>
             <button class="text-button" id="demo-button" type="button">Try a demo notice <span aria-hidden="true">↗</span></button>
           </div>
+          <div class="upload-row">
+            <label class="upload-button" for="notice-file">↑ Upload a notice</label>
+            <input id="notice-file" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md,.csv,.eml,application/pdf,image/png,image/jpeg,image/webp,text/plain,text/markdown,text/csv,message/rfc822">
+            <span id="file-name" class="file-name" aria-live="polite">PDF, image, or text file · max 8 MB</span>
+            <button id="clear-file" class="text-button" type="button" hidden>Remove</button>
+          </div>
+          <p class="upload-help">PDFs and images are read with Gemini. Text files also work with the local parser.</p>
           <label class="sr-only" for="notice">Paste your notice</label>
           <textarea id="notice" maxlength="50000" placeholder="Paste an email, letter, or notice here..."></textarea>
           <div class="input-footer">

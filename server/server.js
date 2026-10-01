@@ -6,13 +6,28 @@ const db = require("./db");
 const auth = require("./auth");
 const { analyze } = require("./ai");
 const { startScheduler } = require("./scheduler");
-const phoneVerification = require("./phone-verification");
 
 const app = express();
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "12mb" }));
 app.use(express.static(path.join(__dirname, "..", "public")));
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
+
+async function saveNoticeAnalysis(ownerId, text, role, analysis, contentHash) {
+  const hash = contentHash || crypto.createHash("sha256").update(text).digest("hex");
+  const cached = await db.getCachedAnalysis(ownerId, hash, role);
+  return cached || db.saveAnalysis({ ownerId, hash, text, role, analysis });
+}
+
+const uploadMimeTypes = new Set([
+  "application/pdf", "image/jpeg", "image/png", "image/webp",
+  "text/plain", "text/markdown", "text/csv", "message/rfc822"
+]);
+const uploadExtensions = {
+  ".pdf": "application/pdf", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+  ".png": "image/png", ".webp": "image/webp", ".txt": "text/plain",
+  ".md": "text/markdown", ".csv": "text/csv", ".eml": "message/rfc822"
+};
 
 app.post("/api/auth/register", async (req, res, next) => {
   try {
@@ -69,7 +84,6 @@ app.get("/api/profile", auth.authenticate, (req, res) => {
       name: req.user.name,
       email: req.user.email,
       phone: req.user.phone,
-      phoneVerified: req.user.phoneVerified,
       emailReminders: req.user.emailReminders,
       whatsappReminders: req.user.whatsappReminders
     }
@@ -85,8 +99,8 @@ app.patch("/api/profile", auth.authenticate, async (req, res, next) => {
         preferences[field] = req.body[field];
       }
     }
-    if (preferences.whatsappReminders === true && !req.user.phoneVerified) {
-      return res.status(400).json({ error: "Verify your phone before opting in to WhatsApp reminders." });
+    if (preferences.whatsappReminders === true) {
+      return res.status(400).json({ error: "WhatsApp reminders are temporarily unavailable." });
     }
     if (!Object.keys(preferences).length) return res.status(400).json({ error: "Choose at least one reminder preference to update." });
     const user = await db.updateUserPreferences(req.userId, preferences);
@@ -97,70 +111,10 @@ app.patch("/api/profile", auth.authenticate, async (req, res, next) => {
   }
 });
 
-app.post("/api/profile/phone-verification/send-code", auth.authenticate, async (req, res, next) => {
-  try {
-    if (req.body?.smsConsent !== true) {
-      return res.status(400).json({ error: "Consent to receive a one-time verification SMS before requesting a code." });
-    }
-    if (!phoneVerification.isConfigured()) {
-      return res.status(503).json({ error: "Phone verification is unavailable. Configure Twilio Verify credentials first." });
-    }
-    if (req.user.phoneVerified) return res.status(409).json({ error: "This phone number is already verified." });
-    const claim = await db.claimPhoneVerification(req.userId, req.user.phone);
-    if (claim === "verified") return res.status(409).json({ error: "This phone number is already verified." });
-    if (claim === "rate_limited") {
-      return res.status(429).json({ error: "A code was requested recently. Wait at least 60 seconds before requesting another." });
-    }
-    if (claim !== "claimed") return res.status(404).json({ error: "Profile not found." });
-    try {
-      await phoneVerification.sendCode(req.user.phone);
-    } catch (error) {
-      if (error.status === 429) {
-        return res.status(429).json({ error: "Twilio Verify rate limit reached. Wait before requesting another code." });
-      }
-      console.error(`Twilio Verify could not send a code (HTTP ${error.status || "network error"}).`);
-      return res.status(502).json({ error: "Twilio Verify could not send the code. Check the Verify service and SMS configuration." });
-    }
-    res.json({ sent: true, message: `A verification code was sent to ${req.user.phone}.` });
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.post("/api/profile/phone-verification/verify-code", auth.authenticate, async (req, res, next) => {
-  try {
-    const code = typeof req.body?.code === "string" ? req.body.code.trim() : "";
-    if (!/^\d{4,10}$/.test(code)) return res.status(400).json({ error: "Enter the numeric verification code from the SMS." });
-    if (!phoneVerification.isConfigured()) {
-      return res.status(503).json({ error: "Phone verification is unavailable. Configure Twilio Verify credentials first." });
-    }
-    if (req.user.phoneVerified) return res.json({ user: userProfile({ ...req.user, phoneVerified: true }) });
-    let verification;
-    try {
-      verification = await phoneVerification.checkCode(req.user.phone, code);
-    } catch (error) {
-      if (error.status === 429) {
-        return res.status(429).json({ error: "Twilio Verify rate limit reached. Wait before trying again." });
-      }
-      if (error.status === 404) return res.status(400).json({ error: "That code is invalid or expired. Request a new code and try again." });
-      console.error(`Twilio Verify could not check a code (HTTP ${error.status || "network error"}).`);
-      return res.status(502).json({ error: "Twilio Verify could not check the code. Please try again." });
-    }
-    if (verification.status !== "approved") {
-      return res.status(400).json({ error: "That code is invalid or expired. Request a new code and try again." });
-    }
-    const user = await db.markPhoneVerified(req.userId, req.user.phone);
-    if (!user) return res.status(409).json({ error: "The account phone number changed. Request a new code for the current number." });
-    res.json({ user: userProfile(user), verified: true });
-  } catch (error) {
-    next(error);
-  }
-});
-
 function userProfile(user) {
   return {
     name: user.name, email: user.email, phone: user.phone,
-    phoneVerified: user.phoneVerified, emailReminders: user.emailReminders,
+    emailReminders: user.emailReminders,
     whatsappReminders: user.whatsappReminders
   };
 }
@@ -174,14 +128,66 @@ app.post("/api/analyze", auth.authenticate, async (req, res, next) => {
     if (!["Student", "Employee", "Parent", "Customer"].includes(role)) {
       return res.status(400).json({ error: "Choose Student, Employee, Parent, or Customer." });
     }
-    const hash = crypto.createHash("sha256").update(text).digest("hex");
-    const cached = await db.getCachedAnalysis(req.userId, hash, role);
-    const result = cached || await db.saveAnalysis({
-      ownerId: req.userId,
-      hash, text, role, analysis: await analyze(text, role)
-    });
+    const result = await saveNoticeAnalysis(req.userId, text, role, await analyze(text, role));
     const { ownerId, _id, ...safeResult } = result;
     res.json(safeResult);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/analyze-file", auth.authenticate, async (req, res, next) => {
+  try {
+    const { name, mimeType, data, role } = req.body || {};
+    if (typeof name !== "string" || typeof data !== "string" || !data
+      || !["Student", "Employee", "Parent", "Customer"].includes(role)) {
+      return res.status(400).json({ error: "Choose a file and reader role to continue." });
+    }
+    const safeName = path.basename(name).slice(0, 200);
+    const extensionMime = uploadExtensions[path.extname(safeName).toLowerCase()];
+    const normalizedMime = typeof mimeType === "string" && uploadMimeTypes.has(mimeType)
+      ? mimeType
+      : extensionMime;
+    if (!normalizedMime || !uploadMimeTypes.has(normalizedMime)) {
+      return res.status(415).json({ error: "Upload a PDF, PNG, JPG, WEBP, TXT, MD, CSV, or EML file." });
+    }
+    const buffer = Buffer.from(data, "base64");
+    if (buffer.length === 0 || buffer.length > 8 * 1024 * 1024 || buffer.toString("base64") !== data) {
+      return res.status(buffer.length > 8 * 1024 * 1024 ? 413 : 400).json({
+        error: "Files must be a valid upload no larger than 8 MB."
+      });
+    }
+    if (normalizedMime.startsWith("text/") || normalizedMime === "message/rfc822") {
+      const text = buffer.toString("utf8").replace(/\0/g, "").trim();
+      if (!text) return res.status(400).json({ error: "This text file is empty or could not be read." });
+      if (text.length > 50000) return res.status(413).json({ error: "Text notices must be 50,000 characters or fewer." });
+      const result = await saveNoticeAnalysis(req.userId, text, role, await analyze(text, role));
+      const { ownerId, _id, ...safeResult } = result;
+      return res.json({ ...safeResult, sourceName: safeName });
+    }
+    const contentHash = crypto.createHash("sha256").update(buffer).digest("hex");
+    const cached = await db.getCachedAnalysis(req.userId, contentHash, role);
+    if (cached) {
+      const { ownerId, _id, ...safeResult } = cached;
+      return res.json({ ...safeResult, sourceName: safeName });
+    }
+    if (process.env.USE_AI !== "true" || !process.env.GEMINI_API_KEY) {
+      return res.status(503).json({
+        error: "PDF and image uploads need Gemini. Set USE_AI=true and GEMINI_API_KEY, or upload a TXT/MD/EML file."
+      });
+    }
+    let analysis;
+    try {
+      analysis = await require("./ai").analyzeFile(buffer, normalizedMime, role);
+    } catch (error) {
+      console.error(`Uploaded notice Gemini analysis failed: ${error.message}`);
+      return res.status(error.status || 502).json({
+        error: "Could not read this upload with Gemini. Check the API key or try a clearer file."
+      });
+    }
+    const result = await saveNoticeAnalysis(req.userId, analysis.sourceText, role, analysis, contentHash);
+    const { ownerId, _id, ...safeResult } = result;
+    res.json({ ...safeResult, sourceName: safeName });
   } catch (error) {
     next(error);
   }

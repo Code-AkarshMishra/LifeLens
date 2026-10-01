@@ -18,11 +18,11 @@ app.post("/api/auth/register", async (req, res, next) => {
   try {
     const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
     const email = auth.normalizeEmail(req.body?.email);
-    const phone = typeof req.body?.phone === "string" ? req.body.phone.trim() : "";
+    const phone = auth.normalizePhone(req.body?.phone);
     const password = req.body?.password;
     if (name.length < 1 || name.length > 100) return res.status(400).json({ error: "Enter a name up to 100 characters." });
     if (!auth.isValidEmail(email)) return res.status(400).json({ error: "Enter a valid email address." });
-    if (!/^\+[1-9]\d{7,14}$/.test(phone)) return res.status(400).json({ error: "Enter a phone number in E.164 format, such as +14155552671." });
+    if (!phone) return res.status(400).json({ error: "Enter an international phone number with country code, such as +91 96820 43203." });
     if (typeof password !== "string" || password.length < 8 || password.length > 128) {
       return res.status(400).json({ error: "Password must be between 8 and 128 characters." });
     }

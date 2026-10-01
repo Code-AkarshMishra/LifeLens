@@ -14,6 +14,14 @@ function isValidEmail(email) {
   return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+function normalizePhone(value) {
+  if (typeof value !== "string") return null;
+  const formatted = value.trim();
+  if (!/^\+[0-9\s()-]+$/.test(formatted)) return null;
+  const phone = `+${formatted.slice(1).replace(/[\s()-]/g, "")}`;
+  return /^\+[1-9]\d{7,14}$/.test(phone) ? phone : null;
+}
+
 function parseCookie(header, name) {
   for (const item of (header || "").split(";")) {
     const [key, ...value] = item.trim().split("=");
@@ -83,6 +91,6 @@ async function authenticate(req, _res, next) {
 }
 
 module.exports = {
-  COOKIE_NAME, parseCookie, normalizeEmail, isValidEmail, hashPassword, verifyPassword,
+  COOKIE_NAME, parseCookie, normalizeEmail, isValidEmail, normalizePhone, hashPassword, verifyPassword,
   tokenDigest, setSessionCookie, clearSessionCookie, createLoginSession, authenticate
 };

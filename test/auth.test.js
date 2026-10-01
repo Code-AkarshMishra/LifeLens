@@ -54,10 +54,21 @@ test("authentication, session restoration, task access and account separation", 
   });
   assert.equal(blockedUpdate.response.status, 401);
 
+  for (const [index, phone] of ["9682043203", "+91 9682", "+91 96820 43A03", "++91 96820 43203"].entries()) {
+    const invalidRegistration = await request("/api/auth/register", {
+      method: "POST",
+      body: {
+        name: "Invalid Phone", email: `invalid-phone-${index}@example.com`, phone,
+        password: "a-secure-passphrase"
+      }
+    });
+    assert.equal(invalidRegistration.response.status, 400, `Expected ${phone} to be rejected`);
+  }
+
   const registration = await request("/api/auth/register", {
     method: "POST",
     body: {
-      name: "Ada Example", email: " ADA@example.com ", phone: "+14155550101",
+      name: "Ada Example", email: " ADA@example.com ", phone: "+91 9682043203",
       password: "a-secure-passphrase"
     }
   });
@@ -65,10 +76,12 @@ test("authentication, session restoration, task access and account separation", 
   assert.match(registration.response.headers.get("set-cookie"), /HttpOnly/);
   assert.match(registration.response.headers.get("set-cookie"), /SameSite=Lax/);
   assert.equal(registration.result.user.email, "ada@example.com");
+  assert.equal(registration.result.user.phone, "+919682043203");
   assert.equal(registration.result.user.emailReminders, true);
   assert.equal(registration.result.user.whatsappReminders, false);
   assert.doesNotMatch(JSON.stringify(registration.result), /passwordHash|passwordSalt|tokenHash/);
   const storedUser = await db.findUserByEmail("ada@example.com");
+  assert.equal(storedUser.phone, "+919682043203");
   assert.notEqual(storedUser.passwordHash, "a-secure-passphrase");
   assert.equal(storedUser.passwordHash.length, 128);
 
@@ -194,14 +207,14 @@ test("authentication, session restoration, task access and account separation", 
     assert.equal(sentCode.result.sent, true);
     assert.equal(providerRequests.length, 1);
     assert.equal(providerRequests[0].url, "https://verify.twilio.com/v2/Services/VA-test/Verifications");
-    assert.equal(new URLSearchParams(providerRequests[0].options.body).get("To"), "+14155550101");
+    assert.equal(new URLSearchParams(providerRequests[0].options.body).get("To"), "+919682043203");
     assert.equal(new URLSearchParams(providerRequests[0].options.body).get("Channel"), "sms");
     assert.match(providerRequests[0].options.headers.Authorization, /^Basic /);
 
     const duplicatePhoneAccount = await request("/api/auth/register", {
       method: "POST",
       body: {
-        name: "Shared Phone", email: "shared-phone@example.com", phone: "+14155550101",
+        name: "Shared Phone", email: "shared-phone@example.com", phone: "+91 (96820) 43203",
         password: "shared-phone-secure-passphrase"
       }
     });

@@ -9,7 +9,7 @@ LifeLens turns a notice into a plain-English summary and an evidence-backed acti
 3. Fill in the credentials for the services you want to use. MongoDB is optional for local development; with no `MONGODB_URI`, the app uses an in-memory database and loses users, sessions, notices, tasks, and reminder states when it stops.
 4. Run `npm install`, then `npm start`, and open `http://localhost:3000`.
 
-Create an account with your name, email, E.164 phone number (for example `+14155552671`), and a password of at least eight characters. Email and phone are reminder destinations, not sign-in identifiers (email is used to sign in). Email is not verified. Account passwords are scrypt-hashed; sessions use random HttpOnly cookies and expire after 30 days.
+Create an account with your name, email, international phone number (including `+` and the country calling code; for example `+91 96820 43203`), and a password of at least eight characters. Spaces, parentheses, and hyphens are accepted and removed before the number is stored and used for SMS/WhatsApp; national-format numbers without a country code are rejected. Email and phone are reminder destinations, not sign-in identifiers (email is used to sign in). Email is not verified. Account passwords are scrypt-hashed; sessions use random HttpOnly cookies and expire after 30 days.
 
 ## Accounts and reminders
 

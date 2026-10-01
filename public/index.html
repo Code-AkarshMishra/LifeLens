@@ -32,7 +32,7 @@
           <p id="auth-description" class="auth-description">Sign in to keep your action plans private to your account.</p>
           <form id="auth-form">
             <label id="name-field" class="form-field" hidden>Name<input name="name" autocomplete="name" maxlength="100"></label>
-            <label id="phone-field" class="form-field" hidden>Phone number<input name="phone" type="tel" autocomplete="tel" placeholder="+14155552671"></label>
+            <label id="phone-field" class="form-field" hidden>Phone number<input name="phone" type="tel" autocomplete="tel" placeholder="+91 96820 43203" aria-describedby="phone-help"><small id="phone-help" class="field-help">Include + and your country calling code. Spaces, parentheses, and hyphens are okay; e.g. +91 96820 43203.</small></label>
             <label class="form-field">Email<input name="email" type="email" autocomplete="email" required maxlength="254"></label>
             <label class="form-field">Password<input name="password" type="password" autocomplete="current-password" required minlength="8" maxlength="128"></label>
             <button id="auth-submit" class="analyze-button" type="submit"><span>Sign in</span><span aria-hidden="true">→</span></button>

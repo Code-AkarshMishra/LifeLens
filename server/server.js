@@ -217,6 +217,14 @@ app.post("/api/tasks/:id/remind-email", auth.authenticate, async (req, res, next
       return res.status(403).json({ error: "Email reminders are turned off. Enable them in Reminder preferences first." });
     }
     if (!auth.isValidEmail(task.owner.email)) return res.status(422).json({ error: "Your account does not have a valid email address for reminders." });
+    const subject = typeof req.body?.subject === "string" ? req.body.subject.trim() : "";
+    const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+    if (!subject || subject.length > 200 || /[\u0000-\u001F\u007F]/.test(subject)) {
+      return res.status(400).json({ error: "Email subject must be 1–200 characters with no line breaks." });
+    }
+    if (!text || text.length > 100000 || /[\0]/.test(text) || /[\u0001-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(text)) {
+      return res.status(400).json({ error: "Email message must be 1–100,000 characters of plain text." });
+    }
     const existing = task.reminders?.emailImmediate || {};
     if (existing.sentAt) return res.status(409).json({ error: "An immediate email reminder was already sent for this task." });
     if (!await db.claimImmediateEmail(req.userId, task.id)) {
@@ -225,6 +233,13 @@ app.post("/api/tasks/:id/remind-email", auth.authenticate, async (req, res, next
         return res.status(409).json({ error: "An immediate email reminder was already sent for this task." });
       }
       return res.status(409).json({ error: "An immediate email reminder is already being sent for this task. Please wait." });
+    }
+    const claimedTask = await db.findOwnedTask(req.userId, task.id);
+    if (!claimedTask || claimedTask.owner.emailReminders !== true) {
+      await db.markImmediateEmail(req.userId, task.id, {
+        status: "opted_out", attemptedAt: new Date().toISOString()
+      });
+      return res.status(403).json({ error: "Email reminders are turned off. Enable them in Reminder preferences first." });
     }
     const missing = mailer.missingSmtpSettings();
     if (missing.length) {
@@ -236,7 +251,7 @@ app.post("/api/tasks/:id/remind-email", auth.authenticate, async (req, res, next
 
     let sent;
     try {
-      sent = await mailer.sendReminder(task, task.owner);
+      sent = await mailer.sendReminder(task, claimedTask.owner, { subject, text });
     } catch (error) {
       await db.markImmediateEmail(req.userId, task.id, {
         status: "error", attemptedAt: new Date().toISOString(), lastError: error.message
@@ -252,7 +267,7 @@ app.post("/api/tasks/:id/remind-email", auth.authenticate, async (req, res, next
     }
     const sentAt = new Date().toISOString();
     await db.markImmediateEmail(req.userId, task.id, { status: "sent", attemptedAt: sentAt, sentAt });
-    return res.json({ sent: true, message: `Reminder email sent to ${task.owner.email}.` });
+    return res.json({ accepted: true, message: `SMTP accepted the email for delivery to ${claimedTask.owner.email}.` });
   } catch (error) {
     next(error);
   }

@@ -22,6 +22,9 @@ after(async () => {
 });
 
 async function request(route, { method = "GET", body, cookie } = {}) {
+  if (route.endsWith("/remind-email") && body === undefined) {
+    body = { subject: "Test reminder", text: "Test reminder message." };
+  }
   const response = await fetch(`${baseUrl}${route}`, {
     method,
     headers: {
@@ -209,11 +212,17 @@ test("authentication, session restoration, task access and account separation", 
   assert.match(ownedCalendar.response.headers.get("content-type"), /text\/calendar/);
   assert.match(ownedCalendar.response.headers.get("content-disposition"), /attachment/);
   assert.match(ownedCalendar.result, /DTSTART;VALUE=DATE:20261015/);
-  assert.match(ownedCalendar.result, /DESCRIPTION:From your notice/);
+  const unfoldedCalendar = ownedCalendar.result.replace(/\r\n /g, "");
+  assert.match(unfoldedCalendar, /DESCRIPTION:Action:/);
+  assert.match(unfoldedCalendar, /Exact sentence from your notice/);
 
   const smtpNames = ["SMTP_HOST", "SMTP_FROM", "SMTP_USER", "SMTP_PASS", "SMTP_PORT", "SMTP_SECURE"];
   const previousSmtp = Object.fromEntries(smtpNames.map((name) => [name, process.env[name]]));
   const originalSendReminder = mailer.sendReminder;
+  const emailMessage = {
+    subject: "Please submit your registration form",
+    text: "Action: Submit your signed registration form\nDeadline: October 15, 2026 (2026-10-15)\nPriority: High\nIf missed: No consequence stated\n\nExact sentence from your notice:\nPlease submit your signed registration form by October 15, 2026."
+  };
   for (const name of smtpNames) delete process.env[name];
   try {
     const missingSmtp = await request(`/api/tasks/${firstAnalysis.result.tasks[0].id}/remind-email`, {
@@ -222,12 +231,26 @@ test("authentication, session restoration, task access and account separation", 
     assert.equal(missingSmtp.response.status, 503);
     assert.match(missingSmtp.result.error, /SMTP_HOST/);
     assert.match(missingSmtp.result.error, /SMTP_FROM or SMTP_USER/);
+    assert.equal(missingSmtp.result.sent, undefined);
+    assert.equal(missingSmtp.result.accepted, undefined);
     const missingSmtpTask = await db.getCachedAnalysis(
       (await db.findUserByEmail("ada@example.com"))._id,
       firstAnalysis.result.hash,
       "Student"
     );
     assert.equal(missingSmtpTask.tasks[0].reminders.emailImmediate.status, "not_configured");
+
+    for (const body of [
+      { subject: " ", text: "Message" },
+      { subject: "Line one\nLine two", text: "Message" },
+      { subject: "x".repeat(201), text: "Message" },
+      { subject: "Subject", text: "x".repeat(100001) }
+    ]) {
+      const invalidEmail = await request(`/api/tasks/${firstAnalysis.result.tasks[0].id}/remind-email`, {
+        method: "POST", cookie: relogin.cookie, body
+      });
+      assert.equal(invalidEmail.response.status, 400);
+    }
 
     process.env.SMTP_HOST = "smtp.example.test";
     process.env.SMTP_FROM = "reminders@example.test";
@@ -259,18 +282,24 @@ test("authentication, session restoration, task access and account separation", 
     assert.equal(wrongOwnerCalendar.response.status, 404);
 
     const recipients = [];
-    mailer.sendReminder = async (task, owner) => {
+    const editedMessage = {
+      subject: "Updated task-specific subject",
+      text: "Action: Submit my signed registration\nDeadline: Oct 15, 2026\nPriority: High\nIf missed: I may be charged a fee\n\nExact source: Please submit your signed registration form by October 15, 2026."
+    };
+    mailer.sendReminder = async (task, owner, message) => {
       providerCalls += 1;
       assert.ok(task.ownerId);
       recipients.push(owner.email);
+      if (owner.email === "ada@example.com") assert.deepEqual(message, editedMessage);
       return true;
     };
     const successRetry = await request(`/api/tasks/${firstAnalysis.result.tasks[0].id}/remind-email`, {
-      method: "POST", cookie: relogin.cookie
+      method: "POST", cookie: relogin.cookie,
+      body: { ...editedMessage, to: "attacker@example.test" }
     });
     assert.equal(successRetry.response.status, 200);
-    assert.equal(successRetry.result.sent, true);
-    assert.match(successRetry.result.message, /ada@example\.com/);
+    assert.equal(successRetry.result.accepted, true);
+    assert.match(successRetry.result.message, /SMTP accepted.*ada@example\.com/);
     const duplicateSend = await request(`/api/tasks/${firstAnalysis.result.tasks[0].id}/remind-email`, {
       method: "POST", cookie: relogin.cookie
     });

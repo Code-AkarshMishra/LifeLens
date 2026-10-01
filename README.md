@@ -13,11 +13,12 @@ Create an account with your name, email, international phone number (including `
 
 ## Accounts and reminders
 
-Registration enables email reminders by default. Email reminders go only to the account email; turn them off in Reminder preferences to withdraw consent. An analysis never sends an email automatically. Each pending task has an **Email me this reminder now** button for an immediate, user-requested email. The hourly scheduler separately sends one reminder for tasks due within the next 24 hours (including overdue tasks) when email reminders are enabled and SMTP is configured.
+Registration enables email reminders by default. Email reminders go only to the account email; turn them off in Reminder preferences to withdraw consent. An analysis never sends an email automatically. Each pending task has a **Send email now** composer with an editable subject and plain-text message prefilled with its action, deadline (or an explicit no-deadline statement), priority, consequence, and exact source evidence. The user must review the message and press **Send email now**. The hourly scheduler separately sends one reminder for tasks due within the next 24 hours (including overdue tasks) when email reminders are enabled and SMTP is configured.
 
-Email delivery uses SMTP credentials. Successful immediate requests are recorded separately from scheduled reminders and cannot be sent twice for the same task. Failed immediate requests are recorded and can be retried; missing provider configuration is reported with the required settings and is never counted as sent.
+Email requests use plain-text SMTP messages addressed only to the signed-in account email. A successful SMTP response is reported as accepted for delivery (not proof of inbox delivery). Immediate requests are recorded separately from scheduled reminders and cannot be sent twice for the same task. Failed immediate requests are recorded and can be retried; missing provider configuration is reported with the required settings and is never counted as sent.
 
 Tasks with parsed deadlines offer a Google Calendar template link and a downloadable `.ics` event. LifeLens does not silently access a Google account: follow the link/import the file and confirm adding the event in your calendar. Each task also offers a WhatsApp share link; LifeLens does not call Twilio or send WhatsApp messages—review the prefilled message and press **Send** in WhatsApp yourself.
+Calendar event titles contain the task action, while event details include the deadline, priority, stated consequence, and exact evidence. An action that says “before the deadline” receives a date only when the immediately preceding sentence in the same paragraph states one.
 
 ## Configuration
 
@@ -66,7 +67,7 @@ Choose a Node.js hosting provider such as Render, Railway, or Fly.io and create 
 - `POST /api/analyze` — authenticated JSON body `{ "text": "...", "role": "Student" }`; valid roles are Student, Employee, Parent, and Customer. Returns summary, extracted actions/evidence, and tasks. Repeated text and role reuse that account's cached analysis.
 - `POST /api/analyze-file` — authenticated JSON body `{ "name": "...", "mimeType": "...", "data": "<base64>", "role": "Student" }`; accepts PDF/images (Gemini required) and text files (local parser works without Gemini), up to 8 MB.
 - `PATCH /api/tasks/:id` — authenticated JSON body `{ "status": "done" }` or `{ "status": "pending" }`; only the task owner can update it.
-- `POST /api/tasks/:id/remind-email` — immediately send one reminder to the authenticated task owner's account email, only for pending tasks with email consent and SMTP configured. A successful send is deduplicated per task.
+- `POST /api/tasks/:id/remind-email` — immediately send one plain-text reminder to the authenticated task owner's account email; JSON body `{ "subject": "...", "text": "..." }` is required. Subject is limited to 200 characters and message to 100,000. Only pending tasks with email consent and SMTP configured can send, and a successful SMTP submission is deduplicated per task.
 - `GET /api/tasks/:id/calendar.ics` — download an all-day calendar event for an owned task with a valid deadline.
 
 Each action includes exact supporting sentences from the source notice. Dates in a notice heading alone do not create event details; the parser only extracts explicit actions and retains the source sentence as evidence.

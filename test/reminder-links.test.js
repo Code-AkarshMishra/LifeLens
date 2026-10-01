@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
-const { calendarUrl, whatsappMessage, whatsappUrl } = require("../public/reminder-links");
+const { calendarUrl, calendarDetails, whatsappMessage, whatsappUrl } = require("../public/reminder-links");
 
 test("WhatsApp link prefills the saved international phone, deadline, and original evidence for manual sending", () => {
   const link = whatsappUrl({
@@ -40,13 +40,39 @@ test("Google Calendar template carries the date and escaped source details", () 
   const link = calendarUrl({
     action: "Submit & confirm",
     evidence: "Submit by November 5, 2026.",
-    deadline: "2026-11-05"
+    deadline: "2026-11-05",
+    deadlineText: "by November 5, 2026",
+    priority: "High",
+    consequence: "A late fee may apply."
   });
   const parsed = new URL(link);
   assert.equal(parsed.origin, "https://calendar.google.com");
   assert.equal(parsed.searchParams.get("dates"), "20261105/20261106");
   assert.equal(parsed.searchParams.get("text"), "Submit & confirm");
-  assert.equal(parsed.searchParams.get("details"), 'From your notice: "Submit by November 5, 2026."');
+  assert.equal(parsed.searchParams.get("details"), [
+    "Action: Submit & confirm",
+    "Deadline: by November 5, 2026 (2026-11-05)",
+    "Priority: High",
+    "If missed: A late fee may apply.",
+    "",
+    "Exact sentence from your notice:",
+    "Submit by November 5, 2026."
+  ].join("\n"));
+});
+
+test("calendar title excludes notice headers and records an explicit no-deadline status", () => {
+  const parsed = new URL(calendarUrl({
+    action: "Subject: Registration\nSubmit the signed form",
+    evidence: "Submit the signed form.",
+    priority: "Normal",
+    consequence: "No consequence is explicitly stated in this notice.",
+    deadline: "2026-11-05"
+  }));
+  assert.equal(parsed.searchParams.get("text"), "Submit the signed form");
+  assert.match(parsed.searchParams.get("details"), /Deadline: 2026-11-05 \(2026-11-05\)/);
+  assert.match(calendarDetails({
+    action: "Submit the form", evidence: "Submit the form.", priority: "Normal"
+  }), /Deadline: No deadline specified in the notice/);
 });
 
 test("invalid dates do not break rendering or produce Google Calendar links", () => {

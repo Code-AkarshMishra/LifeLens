@@ -7,13 +7,17 @@ test("creates an escaped all-day UTC calendar event from a deadline and source e
     id: "task-123",
     action: "Register, then confirm; today",
     evidence: "Register by Nov 10.\nBring your ID.",
-    deadline: "2026-11-10"
+    deadline: "2026-11-10",
+    deadlineText: "by Nov 10",
+    priority: "High",
+    consequence: "Late registration may incur a fee."
   }, new Date("2026-10-01T08:30:00.000Z"));
   assert.match(ics, /DTSTAMP:20261001T083000Z/);
   assert.match(ics, /DTSTART;VALUE=DATE:20261110/);
   assert.match(ics, /DTEND;VALUE=DATE:20261111/);
   assert.match(ics, /SUMMARY:Register\\, then confirm\\; today/);
-  assert.match(ics, /DESCRIPTION:From your notice: Register by Nov 10\.\\nBring your ID\./);
+  const unfolded = ics.replace(/\r\n /g, "");
+  assert.ok(unfolded.includes("DESCRIPTION:Action: Register\\, then confirm\\; today\\nDeadline: by Nov 10 (2026-11-10)\\nPriority: High\\nIf missed: Late registration may incur a fee.\\n\\nExact sentence from your notice:\\nRegister by Nov 10.\\nBring your ID."));
   assert.match(ics, /\r\nEND:VCALENDAR\r\n$/);
 });
 
@@ -27,7 +31,9 @@ test("folds long ICS content at valid UTF-8 boundaries", () => {
     id: "task-long",
     action: "Review this notice",
     evidence: "é".repeat(120),
-    deadline: "2026-11-10"
+    deadline: "2026-11-10",
+    priority: "Normal",
+    consequence: "No consequence stated."
   });
   assert.ok(ics.split("\r\n").every((line) => Buffer.byteLength(line) <= 75));
   assert.match(ics, /\r\n /);

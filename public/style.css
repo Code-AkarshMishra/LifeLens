@@ -109,6 +109,12 @@ textarea::placeholder { color: #aab2ae; }
 .task-meta { margin: 8px 0 0 30px; color: #7a8580; font-size: 10px; line-height: 1.55; }
 .task-meta strong { color: #64716a; }
 .task-tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0 30px; }
+.email-composer { margin: 10px 0 0 30px; padding: 12px; border: 1px solid #e3ebe4; border-radius: 9px; background: #f8faf8; }
+.email-composer[hidden] { display: none; }
+.email-composer label { display: block; margin: 0 0 9px; color: #63716a; font-size: 10px; font-weight: 600; }
+.email-composer input, .email-composer textarea { margin-top: 5px; background: white; font-size: 11px; }
+.email-composer textarea { min-height: 155px; }
+.email-composer .manual-share-note { margin: 0 0 9px; }
 .task-action-button { min-height: 34px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--green); border-radius: 7px; padding: 0 11px; color: white; background: var(--green); font-size: 10px; font-weight: 700; text-decoration: none; cursor: pointer; }
 .task-action-button:hover { border-color: var(--green-dark); background: var(--green-dark); }
 .task-action-button.secondary { border-color: #dce7de; color: var(--green); background: #f7faf7; }

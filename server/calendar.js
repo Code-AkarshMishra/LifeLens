@@ -28,6 +28,27 @@ function formatUtcDate(date) {
   return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
 }
 
+function calendarTitle(action) {
+  const lines = String(action || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const title = lines.filter((line) => !/^(?:subject|from|to|date|re)\s*:/i.test(line)).join(" ");
+  return title.slice(0, 200) || "LifeLens task";
+}
+
+function calendarDescription(task) {
+  return [
+    `Action: ${calendarTitle(task.action)}`,
+    `Deadline: ${task.deadline ? `${task.deadlineText || task.deadline} (${task.deadline})` : "No deadline specified in the notice"}`,
+    `Priority: ${task.priority || "Normal"}`,
+    `If missed: ${task.consequence || "No consequence is explicitly stated in this notice."}`,
+    "",
+    "Exact sentence from your notice:",
+    task.evidence || "",
+    ...(task.consequenceEvidence && task.consequenceEvidence !== task.evidence
+      ? ["", "Exact consequence sentence from your notice:", task.consequenceEvidence]
+      : [])
+  ].join("\n");
+}
+
 function createTaskIcs(task, now = new Date()) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(task.deadline || "")) {
     throw new Error("A valid task deadline is required to create a calendar event.");
@@ -50,8 +71,8 @@ function createTaskIcs(task, now = new Date()) {
     `DTSTAMP:${formatUtcDate(now)}`,
     `DTSTART;VALUE=DATE:${task.deadline.replace(/-/g, "")}`,
     `DTEND;VALUE=DATE:${end.toISOString().slice(0, 10).replace(/-/g, "")}`,
-    `SUMMARY:${escapeIcs(task.action)}`,
-    `DESCRIPTION:${escapeIcs(`From your notice: ${task.evidence || ""}`)}`,
+    `SUMMARY:${escapeIcs(calendarTitle(task.action))}`,
+    `DESCRIPTION:${escapeIcs(calendarDescription(task))}`,
     "END:VEVENT",
     "END:VCALENDAR",
     ""

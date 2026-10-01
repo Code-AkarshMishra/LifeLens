@@ -49,6 +49,20 @@ Students who do not register by the deadline may be charged a late fee and could
   assert.equal(result.actions[2].consequenceEvidence, null);
 });
 
+test("a task that explicitly says 'the deadline' inherits only the immediately preceding same-paragraph date", () => {
+  const result = analyzeNotice(
+    "Please complete course registration by October 15, 2026. Submit your signed course selection form before the deadline."
+  );
+  assert.equal(result.actions[1].deadline, "2026-10-15");
+  assert.equal(result.actions[1].deadlineText, "by October 15, 2026");
+  assert.equal(result.actions[1].evidence, "Submit your signed course selection form before the deadline.");
+
+  const separateParagraphs = analyzeNotice(
+    "Please complete course registration by October 15, 2026.\n\nSubmit the unrelated request before the deadline."
+  );
+  assert.equal(separateParagraphs.actions[1].deadline, null);
+});
+
 test("an event invitation with a date window is actionable, but a bare Discover Events heading is ambiguous", () => {
   const heading = analyzeNotice("Discover Events");
   assert.equal(heading.actions.length, 0);

@@ -260,7 +260,7 @@ function renderResult(result) {
       <p class="progress-message">${escapeHtml(progressText)}</p>
       <button class="text-button next-notice-button" type="button" ${remaining || !tasks.length ? "hidden" : ""}>Analyze another notice ↑</button>
     </div>
-    <p class="reminder-note">Email is sent only when you choose “Email me this reminder now” (SMTP required). Calendar files and WhatsApp messages are prepared for you to review and add/send yourself.</p>
+    <p class="reminder-note">Review and edit each email before choosing Send email now (SMTP required). Calendar files and WhatsApp messages are prepared for you to review and add/send yourself.</p>
     <h2 class="actions-title">What to do <small>${actions.length} ${actions.length === 1 ? "action" : "actions"}</small></h2>
     ${actions.length ? actions.map((action) => {
       const task = taskByEvidence.get(action.evidence);
@@ -271,10 +271,22 @@ function renderResult(result) {
       const whatsappTask = task ? { ...task, ...action } : null;
       const whatsapp = whatsappTask ? whatsappUrl(whatsappTask, currentUser) : "";
       const immediateEmail = task?.reminders?.emailImmediate;
+      const emailSubject = `LifeLens reminder: ${action.action}`.slice(0, 200);
+      const actionMatchesEvidence = action.action === action.evidence;
+      const separateConsequenceEvidence = action.consequenceEvidence
+        && action.consequenceEvidence !== action.evidence
+        && action.consequenceEvidence !== action.action;
+      const emailText = [
+        `${actionMatchesEvidence ? "Action (exact sentence from your notice)" : "Action"}: ${action.action}`,
+        `Deadline: ${action.deadline ? `${action.deadlineText || action.deadline} (${action.deadline})` : "No deadline specified in the notice"}`,
+        `Priority: ${action.priority || "Normal"}`,
+        `${separateConsequenceEvidence ? "If missed (exact related sentence from your notice)" : "If missed"}: ${separateConsequenceEvidence ? action.consequenceEvidence : (action.consequence || "No consequence is explicitly stated in this notice.")}`,
+        ...(!actionMatchesEvidence ? ["", "Exact sentence from your notice:", action.evidence] : [])
+      ].join("\n");
       const reminderLabel = (channel) => {
         if (!currentUser?.[`${channel}Reminders`]) return "Off in preferences";
         const state = task?.reminders?.[channel];
-        if (state?.status === "sent") return "Sent";
+        if (state?.status === "sent") return channel === "email" ? "Submitted to SMTP" : "Sent";
         if (state?.status === "not_configured") return "Not sent: provider not configured";
         if (state?.status === "error") return "Not sent: will retry";
         if (state?.status === "phone_unverified") return "Paused: phone not verified";
@@ -289,17 +301,23 @@ function renderResult(result) {
         <div class="task-meta">${action.deadline ? `<strong>Deadline:</strong> ${escapeHtml(action.deadlineText || action.deadline)} · ${escapeHtml(action.deadline)}` : "<strong>Deadline:</strong> Not specified"}<br><strong>If missed:</strong> ${escapeHtml(action.consequence)}</div>
         <div class="task-meta reminder-status"><strong>Scheduled email:</strong> ${escapeHtml(reminderLabel("email"))}</div>
         <div class="task-tools">
-          <button class="task-action-button email-now-button" type="button" data-email-task="${escapeHtml(task?.id || "")}" ${!task?.id || task.status === "done" || !currentUser?.emailReminders || immediateEmail?.status === "sending" || immediateEmail?.sentAt ? "disabled" : ""}>${immediateEmail?.sentAt ? "Email reminder sent" : "Email me this reminder now"}</button>
+          <button class="task-action-button email-now-button" type="button" aria-expanded="false" ${!task?.id || task.status === "done" || !currentUser?.emailReminders || immediateEmail?.status === "sending" || immediateEmail?.sentAt ? "disabled" : ""}>${immediateEmail?.sentAt ? "Email submitted to SMTP" : "Send email now"}</button>
           ${link ? `<a class="task-action-button secondary" href="${link}" target="_blank" rel="noopener noreferrer">Open Google Calendar ↗</a>` : ""}
           ${calendarDownload ? `<a class="task-action-button secondary" href="${escapeHtml(calendarDownload)}">Download .ics</a>` : ""}
         </div>
+        <form class="email-composer" data-email-task="${escapeHtml(task?.id || "")}" hidden>
+          <label>Subject<input class="email-subject" type="text" maxlength="200" required value="${escapeHtml(emailSubject)}"></label>
+          <label>Message<textarea class="email-message" maxlength="100000" required>${escapeHtml(emailText)}</textarea></label>
+          <p class="manual-share-note">Review and edit the message before sending. It will go only to ${escapeHtml(currentUser?.email || "your account email")}.</p>
+          <button class="task-action-button email-submit-button" type="submit" ${!task?.id || task.status === "done" || !currentUser?.emailReminders ? "disabled" : ""}>Send email now</button>
+        </form>
         ${whatsappTask ? `<details class="whatsapp-composer">
           <summary>Compose WhatsApp message</summary>
           <label>Customize before opening<textarea class="whatsapp-message" data-whatsapp-task="${escapeHtml(task.id)}">${escapeHtml(window.LifeLensReminderLinks.whatsappMessage(whatsappTask))}</textarea></label>
           <a class="task-action-button whatsapp whatsapp-open" href="${escapeHtml(whatsapp)}" target="_blank" rel="noopener noreferrer">Open WhatsApp ↗</a>
           <p class="manual-share-note">Review the message in WhatsApp and press Send yourself. LifeLens does not send WhatsApp messages.</p>
         </details>` : ""}
-        <p class="task-action-status" data-email-status="${escapeHtml(task?.id || "")}" role="status">${immediateEmail?.sentAt ? `Sent to ${escapeHtml(currentUser.email)}.` : (!currentUser?.emailReminders ? "Turn on email reminders in preferences to send." : "")}</p>
+        <p class="task-action-status" data-email-status="${escapeHtml(task?.id || "")}" role="status">${immediateEmail?.sentAt ? `SMTP accepted the email for delivery to ${escapeHtml(currentUser.email)}.` : (!currentUser?.emailReminders ? "Turn on email reminders in preferences to send." : "")}</p>
         <details class="evidence-details"><summary>Why this is on your list</summary><blockquote class="evidence"><span class="evidence-label">Exact sentence from your notice</span>“${escapeHtml(action.evidence)}”</blockquote>
         ${action.consequenceEvidence && action.consequenceEvidence !== action.evidence ? `<blockquote class="evidence"><span class="evidence-label">Related consequence</span>“${escapeHtml(action.consequenceEvidence)}”</blockquote>` : ""}</details>
       </article>`;
@@ -313,7 +331,19 @@ function renderResult(result) {
     checkbox.addEventListener("change", () => updateTask(checkbox, result));
   });
   results.querySelectorAll(".email-now-button").forEach((button) => {
-    button.addEventListener("click", () => sendTaskEmail(button, result));
+    button.addEventListener("click", () => {
+      const composer = button.closest(".task-card").querySelector(".email-composer");
+      const isOpen = !composer.hidden;
+      composer.hidden = isOpen;
+      button.setAttribute("aria-expanded", String(!isOpen));
+      if (!isOpen) composer.querySelector(".email-subject").focus();
+    });
+  });
+  results.querySelectorAll(".email-composer").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      sendTaskEmail(form, result);
+    });
   });
   results.querySelectorAll(".whatsapp-message").forEach((textarea) => {
     textarea.addEventListener("input", () => {
@@ -325,14 +355,22 @@ function renderResult(result) {
   });
 }
 
-async function sendTaskEmail(button, result) {
-  const taskId = button.dataset.emailTask;
+async function sendTaskEmail(form, result) {
+  const taskId = form.dataset.emailTask;
   const status = results.querySelector(`[data-email-status="${CSS.escape(taskId)}"]`);
+  const button = form.querySelector(".email-submit-button");
   button.disabled = true;
   button.textContent = "Sending email…";
   status.textContent = "";
   try {
-    const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/remind-email`, { method: "POST" });
+    const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/remind-email`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subject: form.querySelector(".email-subject").value,
+        text: form.querySelector(".email-message").value
+      })
+    });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "The reminder email was not sent.");
     const task = result.tasks.find((item) => item.id === taskId);
@@ -343,7 +381,7 @@ async function sendTaskEmail(button, result) {
   } catch (error) {
     status.textContent = error.message;
     button.disabled = false;
-    button.textContent = "Email me this reminder now";
+    button.textContent = "Send email now";
   }
 }
 
@@ -379,6 +417,8 @@ async function updateTask(checkbox, result) {
     emailButton.disabled = checkbox.checked
       || !currentUser?.emailReminders
       || Boolean(result.tasks.find((item) => item.id === taskId)?.reminders?.emailImmediate?.sentAt);
+    const emailSubmitButton = card.querySelector(".email-submit-button");
+    emailSubmitButton.disabled = checkbox.checked || !currentUser?.emailReminders;
     const emailStatus = card.querySelector(".task-action-status");
     emailStatus.textContent = checkbox.checked
       ? "Email reminders are only available for pending tasks."

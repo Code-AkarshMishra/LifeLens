@@ -58,14 +58,24 @@ function splitSentences(text) {
 }
 
 function analyzeNotice(text, role = "Student") {
-  const sentences = splitSentences(text);
+  const paragraphs = String(text).split(/\r?\n\s*\r?\n+/);
+  const sentenceEntries = paragraphs.flatMap((paragraph, paragraphIndex) =>
+    splitSentences(paragraph).map((sentence) => ({ sentence, paragraphIndex }))
+  );
+  const sentences = sentenceEntries.map(({ sentence }) => sentence);
   const actions = [];
   const actionRoots = (sentence) => {
     const matches = sentence.match(/\b(register(?:ed|ing)?|registration|submit(?:ted|ting)?|pay(?:ing|ment)?|renew(?:ed|al|ing)?|apply|application|attend(?:ed|ing|ance)?)\b/gi) || [];
     return new Set(matches.map((word) => word.toLowerCase().replace(/registration|registered|registering/g, "register")));
   };
-  for (const sentence of sentences) {
-    const deadline = parseDeadline(sentence);
+  for (const [sentenceIndex, sentence] of sentences.entries()) {
+    const explicitDeadline = parseDeadline(sentence);
+    const previousSentence = sentenceEntries[sentenceIndex - 1];
+    const referencedDeadline = !explicitDeadline && /\b(?:the|this)\s+deadline\b/i.test(sentence)
+      && previousSentence?.paragraphIndex === sentenceEntries[sentenceIndex].paragraphIndex
+      ? parseDeadline(previousSentence.sentence)
+      : null;
+    const deadline = explicitDeadline || referencedDeadline;
     const discoverEvents = /\bdiscover\s+(?:the\s+)?events?\b/i.test(sentence) && EVENT_WINDOW.test(sentence);
     const actionable = ACTION_WORDS.test(sentence) || discoverEvents;
     const datedRequirement = deadline && /\b(due|deadline|payment|registration|application|form|document|fee|respond|renew|complete|submit|pay)\b/i.test(sentence);

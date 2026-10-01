@@ -13,8 +13,27 @@ function smtpConfigurationMessage(missing = missingSmtpSettings()) {
   return `Email reminders are not configured. Set ${missing.join(" and ")} in the deployment environment.`;
 }
 
-async function sendReminder(task, user, createTransport = nodemailer.createTransport) {
+function reminderMessage(task) {
+  const actionMatchesEvidence = task.action === task.evidence;
+  const separateConsequenceEvidence = task.consequenceEvidence
+    && task.consequenceEvidence !== task.evidence
+    && task.consequenceEvidence !== task.action;
+  return {
+    subject: `LifeLens reminder: ${task.action}`.slice(0, 200),
+    text: [
+      `${actionMatchesEvidence ? "Action (exact sentence from your notice)" : "Action"}: ${task.action}`,
+      `Deadline: ${task.deadline ? `${task.deadlineText || task.deadline} (${task.deadline})` : "No deadline specified in the notice"}`,
+      `Priority: ${task.priority || "Normal"}`,
+      `${separateConsequenceEvidence ? "If missed (exact related sentence from your notice)" : "If missed"}: ${separateConsequenceEvidence ? task.consequenceEvidence : (task.consequence || "No consequence is explicitly stated in this notice.")}`,
+      ...(!actionMatchesEvidence ? ["", "Exact sentence from your notice:", task.evidence || ""] : [])
+    ].join("\n")
+  };
+}
+
+async function sendReminder(task, user, message, createTransport = nodemailer.createTransport) {
   if (missingSmtpSettings().length || !user?.email) return false;
+  message = message || reminderMessage(task);
+  if (typeof message.subject !== "string" || typeof message.text !== "string") throw new Error("A subject and plain-text email body are required.");
   const from = process.env.SMTP_FROM?.trim() || process.env.SMTP_USER?.trim();
   const transporter = createTransport({
     host: process.env.SMTP_HOST.trim(),
@@ -27,10 +46,10 @@ async function sendReminder(task, user, createTransport = nodemailer.createTrans
   await transporter.sendMail({
     from,
     to: user.email,
-    subject: `LifeLens reminder: ${task.action}`,
-    text: `Reminder: ${task.action}\nDeadline: ${task.deadline || "See notice"}\n\nEvidence: "${task.evidence}"`
+    subject: message.subject,
+    text: message.text
   });
   return true;
 }
 
-module.exports = { sendReminder, missingSmtpSettings, smtpConfigurationMessage };
+module.exports = { sendReminder, reminderMessage, missingSmtpSettings, smtpConfigurationMessage };

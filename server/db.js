@@ -165,7 +165,8 @@ async function saveAnalysis({ ownerId, hash, text, role, analysis }) {
     const tasks = analysis.actions.map((action) => ({
       _id: makeId(), ownerId, documentId, action: action.action, evidence: action.evidence,
       deadline: action.deadline, deadlineText: action.deadlineText, priority: action.priority,
-      consequence: action.consequence, status: "pending", reminders: {}, createdAt: now
+      consequence: action.consequence, consequenceEvidence: action.consequenceEvidence,
+      status: "pending", reminders: {}, createdAt: now
     }));
     const record = { documentId, ownerId, hash, role, analysis, tasks, createdAt: now };
     memory.documents.set(documentId, { _id: documentId, ownerId, hash, text, createdAt: now });
@@ -180,7 +181,8 @@ async function saveAnalysis({ ownerId, hash, text, role, analysis }) {
   const tasks = analysis.actions.map((action) => ({
     _id: makeId(), ownerId, documentId, action: action.action, evidence: action.evidence,
     deadline: action.deadline, deadlineText: action.deadlineText, priority: action.priority,
-    consequence: action.consequence, status: "pending", reminders: {}, createdAt: now
+    consequence: action.consequence, consequenceEvidence: action.consequenceEvidence,
+    status: "pending", reminders: {}, createdAt: now
   }));
   const analyses = database.collection("analyses");
   try {

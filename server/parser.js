@@ -1,5 +1,6 @@
 const ACTION_WORDS = /\b(submit|send|pay|register|complete|provide|upload|attend|respond|reply|renew|bring|return|contact|schedule|book|apply|collect|visit|sign|fill(?:\s+out)?|ensure|must|need(?:s)?\s+to|required\s+to|should)\b/i;
 const CONSEQUENCE_WORDS = /\b(fail(?:ure)?|otherwise|late fee|penalt(?:y|ies)|cancel(?:led|lation)?|suspend(?:ed|sion)?|lose|forfeit|ineligible|denied|disqualif(?:ied|ication)|not be accepted|may result|will result|liable|termination|eviction|additional charge)\b/i;
+const EVENT_WINDOW = /\b(?:from|between)\s+\d{1,2}\s*(?:[-–—]|to|through)\s*\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b/i;
 const DATE_PATTERNS = [
   /\b(?:by|before|on|due(?:\s+date)?(?:\s+is)?|no later than|until)\s+(?:the\s+)?(?:(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?(January|February|March|April|May|June|July|August|September|October|November|December)(?:\s*,?\s*(20\d{2}))?|(\d{1,2})\s*[/-]\s*(\d{1,2})(?:\s*[/-]\s*(20\d{2}|\d{2}))?|((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:,?\s+20\d{2})?))/i,
   /\b(?:by|before|within)\s+(today|tomorrow|this\s+(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)|next\s+(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday))\b/i
@@ -65,7 +66,8 @@ function analyzeNotice(text, role = "Student") {
   };
   for (const sentence of sentences) {
     const deadline = parseDeadline(sentence);
-    const actionable = ACTION_WORDS.test(sentence);
+    const discoverEvents = /\bdiscover\s+(?:the\s+)?events?\b/i.test(sentence) && EVENT_WINDOW.test(sentence);
+    const actionable = ACTION_WORDS.test(sentence) || discoverEvents;
     const datedRequirement = deadline && /\b(due|deadline|payment|registration|application|form|document|fee|respond|renew|complete|submit|pay)\b/i.test(sentence);
     if (!actionable && !datedRequirement) continue;
     if (/\b(?:who|that)\s+(?:do not|don't|does not|doesn't|did not|didn't)\s+(?:submit|send|pay|register|complete|provide|upload|attend|respond|reply|renew|bring|return|contact|schedule|book|apply|collect|visit|sign|fill|ensure)\b/i.test(sentence)) continue;

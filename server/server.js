@@ -5,6 +5,8 @@ const express = require("express");
 const db = require("./db");
 const auth = require("./auth");
 const { analyze } = require("./ai");
+const mailer = require("./mailer");
+const { createTaskIcs } = require("./calendar");
 const { startScheduler } = require("./scheduler");
 
 const app = express();
@@ -100,7 +102,7 @@ app.patch("/api/profile", auth.authenticate, async (req, res, next) => {
       }
     }
     if (preferences.whatsappReminders === true) {
-      return res.status(400).json({ error: "WhatsApp reminders are temporarily unavailable." });
+      return res.status(400).json({ error: "WhatsApp is manual only. Open a task's WhatsApp link and review and send it in WhatsApp." });
     }
     if (!Object.keys(preferences).length) return res.status(400).json({ error: "Choose at least one reminder preference to update." });
     const user = await db.updateUserPreferences(req.userId, preferences);
@@ -201,6 +203,70 @@ app.patch("/api/tasks/:id", auth.authenticate, async (req, res, next) => {
     const task = await db.updateTask(req.userId, req.params.id, req.body.status);
     if (!task) return res.status(404).json({ error: "Task not found." });
     res.json({ task });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/tasks/:id/remind-email", auth.authenticate, async (req, res, next) => {
+  try {
+    const task = await db.findOwnedTask(req.userId, req.params.id);
+    if (!task) return res.status(404).json({ error: "Task not found." });
+    if (task.status !== "pending") return res.status(409).json({ error: "Email reminders are only available for pending tasks." });
+    if (task.owner.emailReminders !== true) {
+      return res.status(403).json({ error: "Email reminders are turned off. Enable them in Reminder preferences first." });
+    }
+    if (!auth.isValidEmail(task.owner.email)) return res.status(422).json({ error: "Your account does not have a valid email address for reminders." });
+    const existing = task.reminders?.emailImmediate || {};
+    if (existing.sentAt) return res.status(409).json({ error: "An immediate email reminder was already sent for this task." });
+    if (!await db.claimImmediateEmail(req.userId, task.id)) {
+      const latest = await db.findOwnedTask(req.userId, task.id);
+      if (latest?.reminders?.emailImmediate?.sentAt) {
+        return res.status(409).json({ error: "An immediate email reminder was already sent for this task." });
+      }
+      return res.status(409).json({ error: "An immediate email reminder is already being sent for this task. Please wait." });
+    }
+    const missing = mailer.missingSmtpSettings();
+    if (missing.length) {
+      await db.markImmediateEmail(req.userId, task.id, {
+        status: "not_configured", attemptedAt: new Date().toISOString()
+      });
+      return res.status(503).json({ error: mailer.smtpConfigurationMessage(missing) });
+    }
+
+    let sent;
+    try {
+      sent = await mailer.sendReminder(task, task.owner);
+    } catch (error) {
+      await db.markImmediateEmail(req.userId, task.id, {
+        status: "error", attemptedAt: new Date().toISOString(), lastError: error.message
+      });
+      console.error(`Failed to send immediate email reminder for task ${task.id}: ${error.message}`);
+      return res.status(502).json({ error: "SMTP could not send this email. Check your SMTP settings and provider status, then try again." });
+    }
+    if (!sent) {
+      await db.markImmediateEmail(req.userId, task.id, {
+        status: "not_configured", attemptedAt: new Date().toISOString()
+      });
+      return res.status(503).json({ error: mailer.smtpConfigurationMessage() });
+    }
+    const sentAt = new Date().toISOString();
+    await db.markImmediateEmail(req.userId, task.id, { status: "sent", attemptedAt: sentAt, sentAt });
+    return res.json({ sent: true, message: `Reminder email sent to ${task.owner.email}.` });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/tasks/:id/calendar.ics", auth.authenticate, async (req, res, next) => {
+  try {
+    const task = await db.findOwnedTask(req.userId, req.params.id);
+    if (!task) return res.status(404).json({ error: "Task not found." });
+    if (!task.deadline) return res.status(400).json({ error: "This task has no parsed deadline to add to a calendar." });
+    const ics = createTaskIcs(task);
+    res.setHeader("Content-Type", "text/calendar; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="lifelens-task-reminder.ics"');
+    res.send(ics);
   } catch (error) {
     next(error);
   }

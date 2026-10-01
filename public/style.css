@@ -28,6 +28,16 @@ button, select, textarea { font: inherit; }
 h1 { margin: 15px 0 12px; font: 700 clamp(39px, 6vw, 58px)/1.13 Manrope, sans-serif; letter-spacing: -3px; }
 h1 span { color: var(--green); }
 .intro p { max-width: 440px; margin: auto; color: var(--muted); font-size: 15px; line-height: 1.7; }
+.home-actions { display: flex; align-items: center; justify-content: center; gap: 17px; margin: 22px auto 0; }
+.home-actions .analyze-button { width: auto; min-height: 43px; padding: 0 18px; }
+.home-signin { color: var(--green); font-size: 11px; font-weight: 700; text-decoration: none; }
+.home-signin:hover { text-decoration: underline; }
+.home-highlights { display: grid; grid-template-columns: repeat(3, 1fr); gap: 11px; margin: 27px auto 0; text-align: left; }
+.home-highlights article { display: grid; align-content: start; gap: 7px; min-height: 88px; padding: 13px; border: 1px solid #e6ece6; border-radius: 9px; background: rgba(255,255,255,.72); }
+.home-highlights strong { color: #395c49; font: 700 11px Manrope, sans-serif; }
+.home-highlights span { color: #77817d; font-size: 10px; line-height: 1.55; }
+.home-next { max-width: 690px !important; margin: 17px auto 0 !important; font-size: 11px !important; }
+.home-next strong { color: #395c49; }
 .workspace { width: min(680px, 100%); margin: 0 auto; }
 .input-panel, .results, .auth-panel, .account-panel { background: var(--paper); border: 1px solid #e9ece8; border-radius: 15px; box-shadow: 0 12px 38px rgba(38, 58, 45, .055); }
 .input-panel { padding: 25px 27px 19px; }
@@ -98,6 +108,24 @@ textarea::placeholder { color: #aab2ae; }
 .priority.high { background: #fff2e8; color: #a35d31; }
 .task-meta { margin: 8px 0 0 30px; color: #7a8580; font-size: 10px; line-height: 1.55; }
 .task-meta strong { color: #64716a; }
+.task-tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0 30px; }
+.task-action-button { min-height: 34px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--green); border-radius: 7px; padding: 0 11px; color: white; background: var(--green); font-size: 10px; font-weight: 700; text-decoration: none; cursor: pointer; }
+.task-action-button:hover { border-color: var(--green-dark); background: var(--green-dark); }
+.task-action-button.secondary { border-color: #dce7de; color: var(--green); background: #f7faf7; }
+.task-action-button.secondary:hover { border-color: #abc4b0; background: #eff5ef; }
+.task-action-button.whatsapp { border-color: #cce4d1; color: #276442; background: #eef8f0; }
+.task-action-button.whatsapp:hover { border-color: #92c5a0; background: #e2f2e6; }
+.task-action-button:disabled { border-color: #dfe5e0; color: #88928c; background: #f1f3f1; cursor: not-allowed; }
+.manual-share-note, .task-action-status { margin: 7px 0 0 30px; color: #859089; font-size: 9px; line-height: 1.55; }
+.task-action-status { color: #55745e; }
+.task-action-status:empty { display: none; }
+.task-action-status:not(:empty) { overflow-wrap: anywhere; }
+.whatsapp-composer { margin: 12px 0 0 30px; }
+.whatsapp-composer summary { width: fit-content; border: 1px solid #cce4d1; border-radius: 7px; padding: 8px 11px; color: #276442; background: #eef8f0; font-size: 10px; font-weight: 700; cursor: pointer; }
+.whatsapp-composer label { display: block; max-width: 520px; margin-top: 9px; color: #63716a; font-size: 10px; font-weight: 600; }
+.whatsapp-message { min-height: 105px; margin-top: 5px; font-size: 11px; }
+.whatsapp-open { margin-top: 8px; }
+.whatsapp-composer .manual-share-note { margin-left: 0; }
 .evidence { margin: 9px 0 0 30px; padding: 10px 12px; border-left: 2px solid #b2c8b4; border-radius: 0 5px 5px 0; background: #f6f8f5; color: #707c74; font-size: 10px; line-height: 1.6; }
 .evidence-details { margin: 10px 0 0 30px; }
 .evidence-details summary { color: var(--green); font-size: 10px; font-weight: 600; cursor: pointer; }
@@ -115,12 +143,17 @@ footer { display: flex; justify-content: space-between; padding: 45px 0 25px; co
   .intro { padding: 46px 0 27px; }
   h1 { letter-spacing: -2px; }
   .intro p { font-size: 13px; }
+  .home-actions { align-items: stretch; flex-direction: column; gap: 10px; }
+  .home-actions .analyze-button { width: 100%; }
+  .home-highlights { grid-template-columns: 1fr; gap: 7px; }
+  .home-highlights article { min-height: unset; padding: 11px 12px; }
   .input-panel, .results, .auth-panel, .account-panel { padding: 19px 17px 16px; }
   textarea { min-height: 168px; }
   .text-button { font-size: 10px; }
   .task-main { grid-template-columns: 18px 1fr; }
   .priority { grid-column: 2; justify-self: start; }
-  .task-meta, .evidence, .calendar-link { margin-left: 28px; }
+  .task-meta, .evidence, .calendar-link, .task-tools, .manual-share-note, .task-action-status, .whatsapp-composer { margin-left: 28px; }
+  .task-action-button { min-height: 36px; }
   .preferences-form { margin-left: 0; }
   .plan-progress { padding: 13px; }
   footer { gap: 14px; flex-direction: column; padding-top: 35px; }

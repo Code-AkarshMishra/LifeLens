@@ -1,10 +1,11 @@
-const { analyzeNotice, splitSentences } = require("./parser");
+const { analyzeNotice, splitSentences, parseDeadline } = require("./parser");
 
 function validateAnalysis(parsed, role, sourceText) {
   if (!Array.isArray(parsed.actions) || typeof parsed.summary !== "string") {
     throw new Error("Gemini response did not match the expected analysis format.");
   }
   const sourceSentences = new Set(splitSentences(sourceText));
+  const localActions = new Map(analyzeNotice(sourceText, role).actions.map((action) => [action.evidence, action]));
   for (const action of parsed.actions) {
     if (!action.evidence || !sourceSentences.has(action.evidence)
       || (action.consequenceEvidence && !sourceSentences.has(action.consequenceEvidence))) {
@@ -14,15 +15,20 @@ function validateAnalysis(parsed, role, sourceText) {
   return {
     summary: parsed.summary,
     role,
-    actions: parsed.actions.map((action) => ({
-      action: String(action.action || action.evidence),
-      deadline: /^\d{4}-\d{2}-\d{2}$/.test(action.deadline || "") ? action.deadline : null,
-      deadlineText: action.deadlineText ? String(action.deadlineText) : null,
-      priority: action.priority === "High" ? "High" : "Normal",
-      consequence: String(action.consequence || "No consequence is explicitly stated in this notice."),
-      consequenceEvidence: action.consequenceEvidence || null,
-      evidence: action.evidence
-    }))
+    actions: parsed.actions.map((action) => {
+      const evidence = action.evidence;
+      const local = localActions.get(evidence);
+      const deadline = parseDeadline(evidence);
+      return {
+        action: evidence,
+        deadline: deadline?.date || null,
+        deadlineText: deadline?.text || null,
+        priority: local?.priority || (deadline ? "High" : "Normal"),
+        consequence: local?.consequence || "No consequence is explicitly stated in this notice.",
+        consequenceEvidence: local?.consequenceEvidence || null,
+        evidence
+      };
+    })
   };
 }
 

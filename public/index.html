@@ -10,6 +10,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/style.css">
+    <script src="/reminder-links.js" defer></script>
     <script src="/app.js" defer></script>
   </head>
   <body>
@@ -18,10 +19,20 @@
       <span class="top-note"><span class="secure-dot"></span> Private by design</span>
     </header>
     <main class="shell">
-      <section class="intro">
-        <div class="eyebrow"><span class="eyebrow-line"></span> Don’t Just Read It. Know What To Do.</div>
-        <h1>Make sense of<br><span>the fine print.</span></h1>
-        <p>Paste a notice. Get a clear summary, the actions that matter, and what happens next.</p>
+      <section class="intro" id="home-panel">
+        <div class="eyebrow"><span class="eyebrow-line"></span> YOUR PERSONAL NOTICE COMPANION</div>
+        <h1>One notice.<br><span>Clear next steps.</span></h1>
+        <p>LifeLens turns letters, emails, and event notices into an evidence-backed action plan tailored to your role.</p>
+        <div class="home-actions">
+          <button id="home-demo-button" class="analyze-button" type="button">Try the sample plan <span aria-hidden="true">→</span></button>
+          <a class="home-signin" href="#auth-panel">Sign in or create an account</a>
+        </div>
+        <div class="home-highlights">
+          <article><strong>Grounded, not guessed</strong><span>Every step points back to the exact sentence in your notice.</span></article>
+          <article><strong>Know what happens next</strong><span>See deadlines, stated consequences, progress, and the next open step.</span></article>
+          <article><strong>Take action your way</strong><span>Request an email, prepare a WhatsApp message, or add a calendar event yourself.</span></article>
+        </div>
+        <p class="home-next"><strong>How it works:</strong> Paste or upload a notice → review the evidence-backed tasks → mark progress or use the reminder and calendar tools. Email sends require SMTP setup; WhatsApp and calendar additions always need your confirmation.</p>
       </section>
       <section class="workspace" aria-label="Notice analyzer">
         <section id="auth-panel" class="auth-panel" aria-labelledby="auth-title">
@@ -37,7 +48,7 @@
             <label class="form-field">Password<input name="password" type="password" autocomplete="current-password" required minlength="8" maxlength="128"></label>
             <button id="auth-submit" class="analyze-button" type="submit"><span>Sign in</span><span aria-hidden="true">→</span></button>
           </form>
-          <p class="privacy-note">Email reminders are supported. Phone reminders are paused for now; email verification is not enabled.</p>
+          <p class="privacy-note">Email reminders go only to your account email. WhatsApp reminders are prepared for you to review and send manually.</p>
           <p id="auth-error" class="error-message" role="alert" hidden></p>
         </section>
         <section id="account-panel" class="account-panel" hidden aria-label="Reminder preferences">
@@ -48,8 +59,7 @@
           <form id="preferences-form" class="preferences-form">
             <strong>Reminder preferences</strong>
             <label><input id="email-reminders" type="checkbox"> Email reminders to your account email</label>
-            <label class="disabled-preference"><input id="whatsapp-reminders" type="checkbox" disabled> WhatsApp reminders (temporarily unavailable)</label>
-            <p class="reminder-consent">Email reminders are available when SMTP is configured. SMS phone verification and WhatsApp reminders are temporarily paused.</p>
+            <p class="reminder-consent">Email reminders need SMTP configuration. WhatsApp is manual: each task can open a prefilled message for you to review and send.</p>
             <button class="text-button" type="submit">Save preferences</button>
             <p id="preferences-status" class="preferences-status" role="status"></p>
           </form>
@@ -65,7 +75,7 @@
             <span id="file-name" class="file-name" aria-live="polite">PDF, image, or text file · max 8 MB</span>
             <button id="clear-file" class="text-button" type="button" hidden>Remove</button>
           </div>
-          <p class="upload-help">PDFs and images are read with Gemini. Text files also work with the local parser.</p>
+          <p class="upload-help">PDF/image uploads require <code>USE_AI=true</code> and <code>GEMINI_API_KEY</code> in the server environment (set both in Render and redeploy). Otherwise paste the text or upload TXT, MD, CSV, or EML.</p>
           <label class="sr-only" for="notice">Paste your notice</label>
           <textarea id="notice" maxlength="50000" placeholder="Paste an email, letter, or notice here..."></textarea>
           <div class="input-footer">

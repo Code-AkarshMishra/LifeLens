@@ -11,9 +11,11 @@ const nameField = document.querySelector("#name-field");
 const phoneField = document.querySelector("#phone-field");
 const fileInput = document.querySelector("#notice-file");
 const fileName = document.querySelector("#file-name");
+const { calendarUrl, whatsappUrl } = window.LifeLensReminderLinks;
 let selectedFile = null;
 let registering = false;
 let currentUser = null;
+let pendingDemo = false;
 
 const demoNotice = `Subject: Action required — Student registration
 
@@ -30,13 +32,30 @@ noticeInput.addEventListener("input", () => {
 });
 
 document.querySelector("#demo-button").addEventListener("click", () => {
+  fillDemoNotice();
+});
+
+function fillDemoNotice() {
   selectedFile = null;
   fileInput.value = "";
   document.querySelector("#clear-file").hidden = true;
   fileName.textContent = "PDF, image, or text file · max 8 MB";
   noticeInput.value = demoNotice;
   charCount.textContent = `${demoNotice.length} / 50,000`;
+  document.querySelector("#analysis-error").hidden = true;
   noticeInput.focus();
+}
+
+document.querySelector("#home-demo-button").addEventListener("click", () => {
+  if (currentUser) {
+    fillDemoNotice();
+    document.querySelector("#analyzer-panel").scrollIntoView({ behavior: "smooth", block: "center" });
+    return;
+  }
+  pendingDemo = true;
+  authError.textContent = "Sign in or create an account; the sample notice will be ready when you are.";
+  authError.hidden = false;
+  authPanel.scrollIntoView({ behavior: "smooth", block: "center" });
 });
 
 fileInput.addEventListener("change", async () => {
@@ -92,7 +111,7 @@ function setAuthMode(isRegistering) {
   registering = isRegistering;
   document.querySelector("#auth-title").textContent = registering ? "Create your account" : "Welcome back";
   document.querySelector("#auth-description").textContent = registering
-    ? "Your email is used for reminders. Your phone number is saved for future WhatsApp support."
+    ? "Your email receives reminders. Your international phone number is used only to prepare optional WhatsApp messages for you to send."
     : "Sign in to keep your action plans private to your account.";
   authModeButton.textContent = registering ? "I already have an account" : "Create account";
   document.querySelector("#auth-submit span").textContent = registering ? "Create account" : "Sign in";
@@ -111,13 +130,17 @@ authModeButton.addEventListener("click", () => {
 
 function showAuthenticated(user) {
   currentUser = user;
+  authError.hidden = true;
   authPanel.hidden = true;
   document.querySelector("#account-panel").hidden = false;
   document.querySelector("#analyzer-panel").hidden = false;
   document.querySelector("#account-name").textContent = `Hi, ${user.name}`;
   document.querySelector("#account-destinations").textContent = `${user.email} · ${user.phone}`;
   document.querySelector("#email-reminders").checked = user.emailReminders;
-  document.querySelector("#whatsapp-reminders").checked = false;
+  if (pendingDemo) {
+    pendingDemo = false;
+    fillDemoNotice();
+  }
 }
 
 function showSignedOut() {
@@ -198,14 +221,12 @@ document.querySelector("#preferences-form").addEventListener("submit", async (ev
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        emailReminders: document.querySelector("#email-reminders").checked,
-        whatsappReminders: document.querySelector("#whatsapp-reminders").checked
+        emailReminders: document.querySelector("#email-reminders").checked
       })
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Could not save preferences.");
     currentUser = { ...currentUser, ...result.user };
-    document.querySelector("#whatsapp-reminders").checked = false;
     status.textContent = "Reminder preferences saved.";
   } catch (error) {
     status.textContent = error.message;
@@ -216,21 +237,6 @@ function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (character) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
   })[character]);
-}
-
-function calendarUrl(action) {
-  if (!action.deadline) return "";
-  const start = action.deadline.replaceAll("-", "");
-  const endDate = new Date(`${action.deadline}T00:00:00Z`);
-  endDate.setUTCDate(endDate.getUTCDate() + 1);
-  const end = endDate.toISOString().slice(0, 10).replaceAll("-", "");
-  const params = new URLSearchParams({
-    action: "TEMPLATE",
-    text: action.action,
-    dates: `${start}/${end}`,
-    details: `From your notice: "${action.evidence}"`
-  });
-  return `https://calendar.google.com/calendar/render?${params}`;
 }
 
 function renderResult(result) {
@@ -254,14 +260,19 @@ function renderResult(result) {
       <p class="progress-message">${escapeHtml(progressText)}</p>
       <button class="text-button next-notice-button" type="button" ${remaining || !tasks.length ? "hidden" : ""}>Analyze another notice ↑</button>
     </div>
-    <p class="reminder-note">Email reminders use your saved email when SMTP is configured. SMS verification and WhatsApp reminders are temporarily paused.</p>
+    <p class="reminder-note">Email is sent only when you choose “Email me this reminder now” (SMTP required). Calendar files and WhatsApp messages are prepared for you to review and add/send yourself.</p>
     <h2 class="actions-title">What to do <small>${actions.length} ${actions.length === 1 ? "action" : "actions"}</small></h2>
     ${actions.length ? actions.map((action) => {
       const task = taskByEvidence.get(action.evidence);
       const link = calendarUrl(action);
+      const calendarDownload = task?.id && link
+        ? `/api/tasks/${encodeURIComponent(task.id)}/calendar.ics`
+        : "";
+      const whatsappTask = task ? { ...task, ...action } : null;
+      const whatsapp = whatsappTask ? whatsappUrl(whatsappTask, currentUser) : "";
+      const immediateEmail = task?.reminders?.emailImmediate;
       const reminderLabel = (channel) => {
         if (!currentUser?.[`${channel}Reminders`]) return "Off in preferences";
-        if (channel === "whatsapp") return "Temporarily unavailable";
         const state = task?.reminders?.[channel];
         if (state?.status === "sent") return "Sent";
         if (state?.status === "not_configured") return "Not sent: provider not configured";
@@ -276,10 +287,21 @@ function renderResult(result) {
           <span class="priority ${action.priority === "High" ? "high" : ""}">${escapeHtml(action.priority || "Normal")} priority</span>
         </div>
         <div class="task-meta">${action.deadline ? `<strong>Deadline:</strong> ${escapeHtml(action.deadlineText || action.deadline)} · ${escapeHtml(action.deadline)}` : "<strong>Deadline:</strong> Not specified"}<br><strong>If missed:</strong> ${escapeHtml(action.consequence)}</div>
-        <div class="task-meta reminder-status"><strong>Reminder:</strong> Email — ${escapeHtml(reminderLabel("email"))}</div>
+        <div class="task-meta reminder-status"><strong>Scheduled email:</strong> ${escapeHtml(reminderLabel("email"))}</div>
+        <div class="task-tools">
+          <button class="task-action-button email-now-button" type="button" data-email-task="${escapeHtml(task?.id || "")}" ${!task?.id || task.status === "done" || !currentUser?.emailReminders || immediateEmail?.status === "sending" || immediateEmail?.sentAt ? "disabled" : ""}>${immediateEmail?.sentAt ? "Email reminder sent" : "Email me this reminder now"}</button>
+          ${link ? `<a class="task-action-button secondary" href="${link}" target="_blank" rel="noopener noreferrer">Open Google Calendar ↗</a>` : ""}
+          ${calendarDownload ? `<a class="task-action-button secondary" href="${escapeHtml(calendarDownload)}">Download .ics</a>` : ""}
+        </div>
+        ${whatsappTask ? `<details class="whatsapp-composer">
+          <summary>Compose WhatsApp message</summary>
+          <label>Customize before opening<textarea class="whatsapp-message" data-whatsapp-task="${escapeHtml(task.id)}">${escapeHtml(window.LifeLensReminderLinks.whatsappMessage(whatsappTask))}</textarea></label>
+          <a class="task-action-button whatsapp whatsapp-open" href="${escapeHtml(whatsapp)}" target="_blank" rel="noopener noreferrer">Open WhatsApp ↗</a>
+          <p class="manual-share-note">Review the message in WhatsApp and press Send yourself. LifeLens does not send WhatsApp messages.</p>
+        </details>` : ""}
+        <p class="task-action-status" data-email-status="${escapeHtml(task?.id || "")}" role="status">${immediateEmail?.sentAt ? `Sent to ${escapeHtml(currentUser.email)}.` : (!currentUser?.emailReminders ? "Turn on email reminders in preferences to send." : "")}</p>
         <details class="evidence-details"><summary>Why this is on your list</summary><blockquote class="evidence"><span class="evidence-label">Exact sentence from your notice</span>“${escapeHtml(action.evidence)}”</blockquote>
         ${action.consequenceEvidence && action.consequenceEvidence !== action.evidence ? `<blockquote class="evidence"><span class="evidence-label">Related consequence</span>“${escapeHtml(action.consequenceEvidence)}”</blockquote>` : ""}</details>
-        ${link ? `<a class="calendar-link" href="${link}" target="_blank" rel="noopener noreferrer">Add deadline to Google Calendar ↗</a>` : ""}
       </article>`;
     }).join("") : `<p class="empty-state">No clear action could be extracted automatically. Read through your notice and look for requests, dates, and required next steps. Nothing has been inferred as a task.</p>`}`;
   results.hidden = false;
@@ -290,6 +312,39 @@ function renderResult(result) {
   results.querySelectorAll(".task-toggle").forEach((checkbox) => {
     checkbox.addEventListener("change", () => updateTask(checkbox, result));
   });
+  results.querySelectorAll(".email-now-button").forEach((button) => {
+    button.addEventListener("click", () => sendTaskEmail(button, result));
+  });
+  results.querySelectorAll(".whatsapp-message").forEach((textarea) => {
+    textarea.addEventListener("input", () => {
+      const task = result.tasks.find((item) => item.id === textarea.dataset.whatsappTask);
+      if (!task) return;
+      const link = textarea.closest(".whatsapp-composer").querySelector(".whatsapp-open");
+      link.href = whatsappUrl(task, currentUser, textarea.value);
+    });
+  });
+}
+
+async function sendTaskEmail(button, result) {
+  const taskId = button.dataset.emailTask;
+  const status = results.querySelector(`[data-email-status="${CSS.escape(taskId)}"]`);
+  button.disabled = true;
+  button.textContent = "Sending email…";
+  status.textContent = "";
+  try {
+    const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/remind-email`, { method: "POST" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "The reminder email was not sent.");
+    const task = result.tasks.find((item) => item.id === taskId);
+    if (task) task.reminders = { ...task.reminders, emailImmediate: { status: "sent", sentAt: new Date().toISOString() } };
+    renderResult(result);
+    const updatedStatus = results.querySelector(`[data-email-status="${CSS.escape(taskId)}"]`);
+    if (updatedStatus) updatedStatus.textContent = data.message;
+  } catch (error) {
+    status.textContent = error.message;
+    button.disabled = false;
+    button.textContent = "Email me this reminder now";
+  }
 }
 
 async function updateTask(checkbox, result) {
@@ -318,7 +373,16 @@ async function updateTask(checkbox, result) {
       ? `Next up: ${nextTask.action}`
       : "Nice work. Your action plan is complete.";
     results.querySelector(".next-notice-button").hidden = remaining > 0;
-    checkbox.closest(".task-card").classList.toggle("is-done", checkbox.checked);
+    const card = checkbox.closest(".task-card");
+    card.classList.toggle("is-done", checkbox.checked);
+    const emailButton = card.querySelector(".email-now-button");
+    emailButton.disabled = checkbox.checked
+      || !currentUser?.emailReminders
+      || Boolean(result.tasks.find((item) => item.id === taskId)?.reminders?.emailImmediate?.sentAt);
+    const emailStatus = card.querySelector(".task-action-status");
+    emailStatus.textContent = checkbox.checked
+      ? "Email reminders are only available for pending tasks."
+      : (!currentUser?.emailReminders ? "Turn on email reminders in preferences to send." : "");
   } catch (error) {
     checkbox.checked = !checkbox.checked;
     showError(error.message);
@@ -340,9 +404,8 @@ async function runAnalysis() {
     showError("Paste a notice or try the demo notice first.");
     return;
   }
-
   setAuthMode(false);
-  restoreSession();
+  setAuthMode(false);
   document.querySelector("#analysis-error").hidden = true;
   analyzeButton.disabled = true;
   analyzeButton.querySelector("span").textContent = "Reading your notice…";
@@ -382,3 +445,5 @@ async function runAnalysis() {
     analyzeButton.querySelector("span").textContent = "Find my next steps";
   }
 }
+
+restoreSession();

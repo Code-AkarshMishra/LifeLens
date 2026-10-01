@@ -9,20 +9,22 @@ LifeLens turns a notice into a plain-English summary and an evidence-backed acti
 3. Fill in the credentials for the services you want to use. MongoDB is optional for local development; with no `MONGODB_URI`, the app uses an in-memory database and loses users, sessions, notices, tasks, and reminder states when it stops.
 4. Run `npm install`, then `npm start`, and open `http://localhost:3000`.
 
-Create an account with your name, email, international phone number (including `+` and the country calling code; for example `+91 96820 43203`), and a password of at least eight characters. Spaces, parentheses, and hyphens are accepted and removed before the number is stored. Email is used to sign in and receive reminders. Phone is saved for future WhatsApp support, which is currently paused. Email is not verified. Account passwords are scrypt-hashed; sessions use random HttpOnly cookies and expire after 30 days.
+Create an account with your name, email, international phone number (including `+` and the country calling code; for example `+91 96820 43203`), and a password of at least eight characters. Spaces, parentheses, and hyphens are accepted and removed before the number is stored. Email is used to sign in and receive reminders. WhatsApp links use the saved number only to prefill a message; you review and send it yourself in WhatsApp. Email is not verified. Account passwords are scrypt-hashed; sessions use random HttpOnly cookies and expire after 30 days.
 
 ## Accounts and reminders
 
-Registration enables email reminders by default. Email reminders go only to the account email; turn them off in Reminder preferences to withdraw consent. SMS verification and WhatsApp reminders have been removed for now and are unavailable in this version.
+Registration enables email reminders by default. Email reminders go only to the account email; turn them off in Reminder preferences to withdraw consent. An analysis never sends an email automatically. Each pending task has an **Email me this reminder now** button for an immediate, user-requested email. The hourly scheduler separately sends one reminder for tasks due within the next 24 hours (including overdue tasks) when email reminders are enabled and SMTP is configured.
 
-Email delivery uses SMTP credentials. SMTP failures are recorded per task and retried on the next hourly scheduler cycle; missing provider configuration is recorded as not configured and is not counted as sent.
+Email delivery uses SMTP credentials. Successful immediate requests are recorded separately from scheduled reminders and cannot be sent twice for the same task. Failed immediate requests are recorded and can be retried; missing provider configuration is reported with the required settings and is never counted as sent.
+
+Tasks with parsed deadlines offer a Google Calendar template link and a downloadable `.ics` event. LifeLens does not silently access a Google account: follow the link/import the file and confirm adding the event in your calendar. Each task also offers a WhatsApp share link; LifeLens does not call Twilio or send WhatsApp messages—review the prefilled message and press **Send** in WhatsApp yourself.
 
 ## Configuration
 
 - `MONGODB_URI` and optional `MONGODB_DB` enable persistent storage for accounts, hashed sessions, documents, cached analyses, tasks, and per-channel reminder state. Without the URI, the in-memory development database is used.
-- `USE_AI=true` with `GEMINI_API_KEY` enables Gemini analysis. Gemini is optional; the local parser remains the fallback when AI is disabled, the key is absent, or AI returns an error or invalid evidence.
-- SMTP settings enable opted-in email reminders to each user's saved email.
-- SMS verification and WhatsApp reminders are temporarily disabled; Twilio settings are not needed.
+- `USE_AI=true` with `GEMINI_API_KEY` enables Gemini analysis for pasted/text notices and PDF/image uploads. Gemini is optional for text: the local parser is used when AI is disabled or the key is absent, and is the fallback when Gemini returns an error, malformed analysis, or evidence that is not an exact source sentence.
+- Email requires `SMTP_HOST` and either `SMTP_FROM` or `SMTP_USER`; if `SMTP_USER` is set, `SMTP_PASS` is also required. `SMTP_PORT` defaults to 587 and `SMTP_SECURE` defaults to false.
+- WhatsApp messages are shared manually through `wa.me`; Twilio settings and API delivery are not used.
 - `PORT` is read from the environment; it defaults to 3000.
 
 Never commit `.env`, paste credentials into the browser/client bundle, or store secrets in repository files. Configure production secrets using the deployment provider's secret/environment settings.
@@ -39,8 +41,9 @@ Never commit `.env`, paste credentials into the browser/client bundle, or store 
 
 - **Gemini:** Create a Google AI Studio account and API key if Gemini analysis is wanted. Set `USE_AI=true` and `GEMINI_API_KEY`; otherwise the local parser works without a key.
 - **Upload a notice:** Upload PDF, PNG, JPG, WEBP, TXT, MD, CSV, or EML files up to 8 MB. Text files use the local parser or Gemini. PDF and image uploads are read by Gemini, so set `USE_AI=true` and `GEMINI_API_KEY`; without them, paste the notice text or upload a text file. When AI is enabled, uploaded document contents are sent to Gemini for analysis.
-- **Email:** Create an account with an SMTP provider, verify the sender/domain, and obtain the SMTP host, port, TLS setting, username, and password or app password. Set these as `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, and optionally `SMTP_FROM`. This is optional; reminder delivery won't occur without it.
-- SMS and WhatsApp reminders are paused and do not need Twilio configuration in this version.
+- **Email:** Create an account with an SMTP provider, verify the sender/domain, and configure `SMTP_HOST` plus `SMTP_FROM` (or `SMTP_USER`; with a user, also set `SMTP_PASS`). `SMTP_PORT`, `SMTP_SECURE`, and `SMTP_FROM` are optional only when their documented defaults/alternative apply. Delivery won't occur without SMTP.
+- **Google Calendar:** No Google OAuth is configured. Use the task's Google Calendar template or download the `.ics` event and confirm the import yourself.
+- **WhatsApp:** Each task's manual share link opens WhatsApp with a prefilled message. It is not automatically sent and does not require Twilio.
 
 ## Deploy
 
@@ -50,7 +53,7 @@ Choose a Node.js hosting provider such as Render, Railway, or Fly.io and create 
 
 **Required for a persistent public deployment:** MongoDB Atlas account, cluster, database username/password, connection URI, and the hosting provider account/project. No GitHub deploy key is required.
 
-**Optional:** Gemini API key (AI analysis); SMTP account credentials and a verified sender (email reminders). SMS and WhatsApp are paused for now.
+**Optional:** Gemini API key (AI analysis); SMTP account credentials and a verified sender (email reminders). Google Calendar and WhatsApp links are user-confirmed/manual.
 
 ## API
 
@@ -63,8 +66,12 @@ Choose a Node.js hosting provider such as Render, Railway, or Fly.io and create 
 - `POST /api/analyze` — authenticated JSON body `{ "text": "...", "role": "Student" }`; valid roles are Student, Employee, Parent, and Customer. Returns summary, extracted actions/evidence, and tasks. Repeated text and role reuse that account's cached analysis.
 - `POST /api/analyze-file` — authenticated JSON body `{ "name": "...", "mimeType": "...", "data": "<base64>", "role": "Student" }`; accepts PDF/images (Gemini required) and text files (local parser works without Gemini), up to 8 MB.
 - `PATCH /api/tasks/:id` — authenticated JSON body `{ "status": "done" }` or `{ "status": "pending" }`; only the task owner can update it.
+- `POST /api/tasks/:id/remind-email` — immediately send one reminder to the authenticated task owner's account email, only for pending tasks with email consent and SMTP configured. A successful send is deduplicated per task.
+- `GET /api/tasks/:id/calendar.ics` — download an all-day calendar event for an owned task with a valid deadline.
 
-Each action includes exact supporting sentences from the source notice. Deadlines include a Google Calendar link in the web interface when a date can be identified.
+Each action includes exact supporting sentences from the source notice. Dates in a notice heading alone do not create event details; the parser only extracts explicit actions and retains the source sentence as evidence.
+
+The home page includes a gated sample plan for quick demos; sign in or create an account and the sample notice is loaded automatically. Its evidence-first action list and task-specific email, calendar, and editable WhatsApp tools are intended to make the next step actionable without claiming that any external message or calendar event was added before user confirmation.
 
 ## Tests
 

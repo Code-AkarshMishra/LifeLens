@@ -3,6 +3,7 @@ process.env.NODE_ENV = "test";
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
 const db = require("../server/db");
+const mailer = require("../server/mailer");
 const { sendDueReminders } = require("../server/scheduler");
 const app = require("../server/server");
 
@@ -30,7 +31,9 @@ async function request(route, { method = "GET", body, cookie } = {}) {
     ...(body ? { body: JSON.stringify(body) } : {})
   });
   const rawCookie = response.headers.get("set-cookie");
-  const result = await response.json();
+  const result = response.headers.get("content-type")?.includes("application/json")
+    ? await response.json()
+    : await response.text();
   return {
     response,
     result,
@@ -43,9 +46,15 @@ test("authentication, session restoration, task access and account separation", 
   const page = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
   assert.doesNotMatch(page, /phone-verification|verification-code|sms-consent/);
-  assert.match(page, /id="whatsapp-reminders"[^>]*disabled/);
+  assert.match(page, /reminder-links\.js/);
+  assert.match(page, /Grounded, not guessed/);
+  assert.match(page, /Try the sample plan/);
+  assert.match(page, /GEMINI_API_KEY/);
   assert.match(page, /id="notice-file"/);
   assert.match(await (await fetch(`${baseUrl}/app.js`)).text(), /All steps complete/);
+  assert.match(await (await fetch(`${baseUrl}/reminder-links.js`)).text(), /https:\/\/wa\.me/);
+  assert.match(await (await fetch(`${baseUrl}/app.js`)).text(), /whatsapp-message/);
+  assert.deepEqual(await (await fetch(`${baseUrl}/api/health`)).json(), { ok: true });
 
   const blockedAnalyze = await request("/api/analyze", {
     method: "POST", body: { text: "Submit the form by October 15, 2026.", role: "Student" }
@@ -55,6 +64,10 @@ test("authentication, session restoration, task access and account separation", 
     method: "PATCH", body: { status: "done" }
   });
   assert.equal(blockedUpdate.response.status, 401);
+  const blockedEmail = await request("/api/tasks/not-a-task/remind-email", { method: "POST" });
+  assert.equal(blockedEmail.response.status, 401);
+  const blockedCalendar = await request("/api/tasks/not-a-task/calendar.ics");
+  assert.equal(blockedCalendar.response.status, 401);
   const blockedUpload = await request("/api/analyze-file", {
     method: "POST", body: { name: "notice.pdf", mimeType: "application/pdf", data: "JVBERg==", role: "Student" }
   });
@@ -124,6 +137,22 @@ test("authentication, session restoration, task access and account separation", 
   assert.equal(firstAnalysis.response.status, 200);
   assert.equal(firstAnalysis.result.cached, false);
   assert.equal(firstAnalysis.result.tasks.length, 1);
+  const customEventNotice = "Discover events from 10–12 Nov.\nRegister by November 5, 2026.";
+  const customEvent = await request("/api/analyze", {
+    method: "POST", cookie: registration.cookie,
+    body: { text: customEventNotice, role: "Student" }
+  });
+  assert.equal(customEvent.response.status, 200);
+  assert.deepEqual(customEvent.result.analysis.actions.map((action) => action.evidence), [
+    "Discover events from 10–12 Nov.",
+    "Register by November 5, 2026."
+  ]);
+  assert.equal(customEvent.result.tasks.length, 2);
+  const invalidRole = await request("/api/analyze", {
+    method: "POST", cookie: registration.cookie,
+    body: { text: "Discover events from 10–12 Nov.", role: "Admin" }
+  });
+  assert.equal(invalidRole.response.status, 400);
 
   const reloadAnalysis = await request("/api/analyze", {
     method: "POST", cookie: registration.cookie,
@@ -168,6 +197,107 @@ test("authentication, session restoration, task access and account separation", 
   });
   assert.equal(secondAnalysis.result.cached, false);
   assert.notEqual(secondAnalysis.result.tasks[0].id, firstAnalysis.result.tasks[0].id);
+  const crossAccountCalendar = await request(`/api/tasks/${firstAnalysis.result.tasks[0].id}/calendar.ics`, {
+    cookie: secondAccount.cookie
+  });
+  assert.equal(crossAccountCalendar.response.status, 404);
+
+  const ownedCalendar = await request(`/api/tasks/${firstAnalysis.result.tasks[0].id}/calendar.ics`, {
+    cookie: relogin.cookie
+  });
+  assert.equal(ownedCalendar.response.status, 200);
+  assert.match(ownedCalendar.response.headers.get("content-type"), /text\/calendar/);
+  assert.match(ownedCalendar.response.headers.get("content-disposition"), /attachment/);
+  assert.match(ownedCalendar.result, /DTSTART;VALUE=DATE:20261015/);
+  assert.match(ownedCalendar.result, /DESCRIPTION:From your notice/);
+
+  const smtpNames = ["SMTP_HOST", "SMTP_FROM", "SMTP_USER", "SMTP_PASS", "SMTP_PORT", "SMTP_SECURE"];
+  const previousSmtp = Object.fromEntries(smtpNames.map((name) => [name, process.env[name]]));
+  const originalSendReminder = mailer.sendReminder;
+  for (const name of smtpNames) delete process.env[name];
+  try {
+    const missingSmtp = await request(`/api/tasks/${firstAnalysis.result.tasks[0].id}/remind-email`, {
+      method: "POST", cookie: relogin.cookie
+    });
+    assert.equal(missingSmtp.response.status, 503);
+    assert.match(missingSmtp.result.error, /SMTP_HOST/);
+    assert.match(missingSmtp.result.error, /SMTP_FROM or SMTP_USER/);
+    const missingSmtpTask = await db.getCachedAnalysis(
+      (await db.findUserByEmail("ada@example.com"))._id,
+      firstAnalysis.result.hash,
+      "Student"
+    );
+    assert.equal(missingSmtpTask.tasks[0].reminders.emailImmediate.status, "not_configured");
+
+    process.env.SMTP_HOST = "smtp.example.test";
+    process.env.SMTP_FROM = "reminders@example.test";
+    const ada = await db.findUserByEmail("ada@example.com");
+    const grace = await db.findUserByEmail("grace@example.com");
+    await db.markReminder(ada._id, firstAnalysis.result.tasks[0].id, "email", {
+      status: "sent", sentAt: new Date().toISOString()
+    });
+    let providerCalls = 0;
+    mailer.sendReminder = async () => {
+      providerCalls += 1;
+      throw new Error("mock SMTP failure");
+    };
+    const failedEmail = await request(`/api/tasks/${firstAnalysis.result.tasks[0].id}/remind-email`, {
+      method: "POST", cookie: relogin.cookie
+    });
+    assert.equal(failedEmail.response.status, 502);
+    assert.match(failedEmail.result.error, /SMTP could not send/);
+    const ownedAnalysis = await db.getCachedAnalysis(ada._id, firstAnalysis.result.hash, "Student");
+    assert.equal(ownedAnalysis.tasks[0].reminders.emailImmediate.status, "error");
+
+    const wrongOwnerEmail = await request(`/api/tasks/${firstAnalysis.result.tasks[0].id}/remind-email`, {
+      method: "POST", cookie: secondAccount.cookie
+    });
+    assert.equal(wrongOwnerEmail.response.status, 404);
+    const wrongOwnerCalendar = await request(`/api/tasks/${firstAnalysis.result.tasks[0].id}/calendar.ics`, {
+      cookie: secondAccount.cookie
+    });
+    assert.equal(wrongOwnerCalendar.response.status, 404);
+
+    const recipients = [];
+    mailer.sendReminder = async (task, owner) => {
+      providerCalls += 1;
+      assert.ok(task.ownerId);
+      recipients.push(owner.email);
+      return true;
+    };
+    const successRetry = await request(`/api/tasks/${firstAnalysis.result.tasks[0].id}/remind-email`, {
+      method: "POST", cookie: relogin.cookie
+    });
+    assert.equal(successRetry.response.status, 200);
+    assert.equal(successRetry.result.sent, true);
+    assert.match(successRetry.result.message, /ada@example\.com/);
+    const duplicateSend = await request(`/api/tasks/${firstAnalysis.result.tasks[0].id}/remind-email`, {
+      method: "POST", cookie: relogin.cookie
+    });
+    assert.equal(duplicateSend.response.status, 409);
+    assert.deepEqual(recipients, ["ada@example.com"]);
+    const successfulTask = await db.getCachedAnalysis(ada._id, firstAnalysis.result.hash, "Student");
+    assert.equal(successfulTask.tasks[0].reminders.email.status, "sent");
+    assert.equal(successfulTask.tasks[0].reminders.emailImmediate.status, "sent");
+
+    const graceTask = secondAnalysis.result.tasks[0];
+    const graceSent = await request(`/api/tasks/${graceTask.id}/remind-email`, {
+      method: "POST", cookie: secondAccount.cookie
+    });
+    assert.equal(graceSent.response.status, 200);
+    assert.deepEqual(recipients, ["ada@example.com", "grace@example.com"]);
+    const graceDuplicate = await request(`/api/tasks/${graceTask.id}/remind-email`, {
+      method: "POST", cookie: secondAccount.cookie
+    });
+    assert.equal(graceDuplicate.response.status, 409);
+    assert.deepEqual(recipients, ["ada@example.com", "grace@example.com"]);
+  } finally {
+    mailer.sendReminder = originalSendReminder;
+    for (const name of smtpNames) {
+      if (previousSmtp[name] === undefined) delete process.env[name];
+      else process.env[name] = previousSmtp[name];
+    }
+  }
 
   const textNotice = "Please submit the signed document by October 20, 2026.";
   const textUpload = await request("/api/analyze-file", {
@@ -188,6 +318,11 @@ test("authentication, session restoration, task access and account separation", 
     method: "POST", cookie: relogin.cookie, body: pdfBody
   });
   assert.equal(noGemini.response.status, 503);
+  assert.match(noGemini.result.error, /USE_AI=true and GEMINI_API_KEY/);
+  const invalidUploadRole = await request("/api/analyze-file", {
+    method: "POST", cookie: relogin.cookie, body: { ...pdfBody, role: "Administrator" }
+  });
+  assert.equal(invalidUploadRole.response.status, 400);
   process.env.USE_AI = "true";
   process.env.GEMINI_API_KEY = "test-api-key";
   const sourceText = "Please submit the signed document by October 15, 2026.";
@@ -257,6 +392,7 @@ test("authentication, session restoration, task access and account separation", 
     method: "PATCH", cookie: secondAccount.cookie, body: { whatsappReminders: true }
   });
   assert.equal(blockedWhatsappOptIn.response.status, 400);
+  assert.match(blockedWhatsappOptIn.result.error, /manual only/);
 
   const crossAccountUpdate = await request(`/api/tasks/${firstAnalysis.result.tasks[0].id}`, {
     method: "PATCH", cookie: secondAccount.cookie, body: { status: "done" }
@@ -267,6 +403,10 @@ test("authentication, session restoration, task access and account separation", 
   });
   assert.equal(ownedUpdate.response.status, 200);
   assert.equal(ownedUpdate.result.task.status, "done");
+  const completedEmail = await request(`/api/tasks/${firstAnalysis.result.tasks[0].id}/remind-email`, {
+    method: "POST", cookie: relogin.cookie
+  });
+  assert.equal(completedEmail.response.status, 409);
 
   const preferences = await request("/api/profile", {
     method: "PATCH", cookie: relogin.cookie,
@@ -275,12 +415,16 @@ test("authentication, session restoration, task access and account separation", 
   assert.equal(preferences.response.status, 200);
   assert.equal(preferences.result.user.emailReminders, false);
   assert.equal(preferences.result.user.whatsappReminders, false);
+  const optedOutEmail = await request(`/api/tasks/${concurrentAnalyses[0].result.tasks[0].id}/remind-email`, {
+    method: "POST", cookie: relogin.cookie
+  });
+  assert.equal(optedOutEmail.response.status, 403);
 
   const whatsappOptIn = await request("/api/profile", {
     method: "PATCH", cookie: relogin.cookie, body: { whatsappReminders: true }
   });
   assert.equal(whatsappOptIn.response.status, 400);
-  assert.match(whatsappOptIn.result.error, /temporarily unavailable/);
+  assert.match(whatsappOptIn.result.error, /manual only/);
 
   const firstUser = await db.findUserByEmail("ada@example.com");
   const unverifiedHash = "unverified-whatsapp-test";

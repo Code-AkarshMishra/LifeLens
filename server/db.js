@@ -230,6 +230,19 @@ async function updateTask(ownerId, id, status) {
   return result ? publicTask(result) : null;
 }
 
+async function findOwnedTask(ownerId, id) {
+  let task;
+  if (!database) {
+    task = memory.tasks.get(id);
+    if (!task || task.ownerId !== ownerId) return null;
+  } else {
+    task = await database.collection("tasks").findOne({ _id: id, ownerId });
+    if (!task) return null;
+  }
+  const owner = await findUserById(ownerId);
+  return owner ? { ...publicTask(task), ownerId, owner: publicUser(owner) } : null;
+}
+
 async function getDueTasks(until) {
   let tasks;
   if (!database) {
@@ -288,8 +301,53 @@ async function markReminder(ownerId, id, channel, state) {
   if (!result.matchedCount) throw new Error(`Cannot update reminder state: task ${id} was not found.`);
 }
 
+async function claimImmediateEmail(ownerId, id, now = new Date()) {
+  const staleBefore = new Date(now.getTime() - 15 * 60 * 1000);
+  const prefix = "reminders.emailImmediate";
+  if (!database) {
+    const task = memory.tasks.get(id);
+    if (!task || task.ownerId !== ownerId || task.status !== "pending") return false;
+    const reminder = task.reminders.emailImmediate || {};
+    if (reminder.sentAt || (reminder.status === "sending" && reminder.claimedAt > staleBefore)) return false;
+    task.reminders.emailImmediate = { status: "sending", attemptedAt: now, claimedAt: now };
+    return true;
+  }
+  const result = await database.collection("tasks").updateOne({
+    _id: id,
+    ownerId,
+    status: "pending",
+    [`${prefix}.sentAt`]: { $exists: false },
+    $or: [
+      { [`${prefix}.status`]: { $ne: "sending" } },
+      { [`${prefix}.claimedAt`]: { $exists: false } },
+      { [`${prefix}.claimedAt`]: { $lt: staleBefore } }
+    ]
+  }, {
+    $set: {
+      [`${prefix}.status`]: "sending",
+      [`${prefix}.attemptedAt`]: now,
+      [`${prefix}.claimedAt`]: now
+    }
+  });
+  return result.modifiedCount === 1;
+}
+
+async function markImmediateEmail(ownerId, id, state) {
+  if (!database) {
+    const task = memory.tasks.get(id);
+    if (!task || task.ownerId !== ownerId) throw new Error(`Cannot update immediate email reminder: task ${id} was not found.`);
+    task.reminders.emailImmediate = state;
+    return;
+  }
+  const result = await database.collection("tasks").updateOne(
+    { _id: id, ownerId }, { $set: { "reminders.emailImmediate": state } }
+  );
+  if (!result.matchedCount) throw new Error(`Cannot update immediate email reminder: task ${id} was not found.`);
+}
+
 module.exports = {
   connect, createUser, findUserByEmail, updateUserPreferences,
   createSession, getSessionUser, deleteSession,
-  getCachedAnalysis, saveAnalysis, updateTask, getDueTasks, markReminder, claimReminder
+  getCachedAnalysis, saveAnalysis, updateTask, findOwnedTask, getDueTasks,
+  markReminder, claimReminder, claimImmediateEmail, markImmediateEmail
 };

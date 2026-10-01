@@ -49,6 +49,7 @@ function renderResult(result) {
   const taskByEvidence = new Map(tasks.map((task) => [task.evidence, task]));
   results.innerHTML = `<div class="result-kicker">Your action plan${result.cached ? " · saved analysis" : ""}</div>
     <p class="summary">${escapeHtml(result.analysis?.summary || "Review the notice details below.")}</p>
+    <p class="reminder-note">Email and WhatsApp reminders run automatically for tasks due within 24 hours when SMTP or Twilio is configured.</p>
     <h2 class="actions-title">What to do <small>${actions.length} ${actions.length === 1 ? "action" : "actions"}</small></h2>
     ${actions.length ? actions.map((action) => {
       const task = taskByEvidence.get(action.evidence);

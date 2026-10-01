@@ -17,7 +17,7 @@ Copy `.env.example` to `.env` and configure only the providers you want to use:
 
 - `MONGODB_URI` and optional `MONGODB_DB` enable MongoDB Atlas persistence for notices, cached role-specific analyses, tasks, statuses, and reminder state. Without a URI, the app clearly logs that it is using in-memory storage.
 - `USE_AI=true` with `GEMINI_API_KEY` enables Gemini analysis. The local parser runs when AI is disabled, the key is absent, or Gemini returns an error or invalid evidence.
-- SMTP settings and `REMINDER_EMAIL` enable email reminders. Twilio account credentials, a WhatsApp sender, and `REMINDER_WHATSAPP_TO` enable WhatsApp reminders. Reminders are checked at startup and hourly for pending tasks due within 24 hours.
+- SMTP settings and `REMINDER_EMAIL` enable automatic email reminders. Twilio account credentials, a WhatsApp sender, and `REMINDER_WHATSAPP_TO` enable automatic WhatsApp reminders. At startup and hourly, LifeLens checks pending tasks due within 24 hours and sends reminders through each configured channel.
 
 Keep `.env` private; it is ignored by git. Never put real credentials in `.env.example` or commit them.
 

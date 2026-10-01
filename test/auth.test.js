@@ -39,6 +39,12 @@ async function request(route, { method = "GET", body, cookie } = {}) {
 }
 
 test("authentication, session restoration, task access and account separation", async () => {
+  const pageResponse = await fetch(`${baseUrl}/`);
+  const page = await pageResponse.text();
+  assert.equal(pageResponse.status, 200);
+  assert.match(page, /id="send-code-form"/);
+  assert.match(page, /id="verification-code"/);
+
   const blockedAnalyze = await request("/api/analyze", {
     method: "POST", body: { text: "Submit the form by October 15, 2026.", role: "Student" }
   });
@@ -144,6 +150,112 @@ test("authentication, session restoration, task access and account separation", 
   assert.equal(secondAnalysis.result.cached, false);
   assert.notEqual(secondAnalysis.result.tasks[0].id, firstAnalysis.result.tasks[0].id);
 
+  for (const key of ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_VERIFY_SERVICE_SID"]) delete process.env[key];
+  const noSmsConsent = await request("/api/profile/phone-verification/send-code", {
+    method: "POST", cookie: relogin.cookie, body: { smsConsent: false }
+  });
+  assert.equal(noSmsConsent.response.status, 400);
+  const missingVerifyConfig = await request("/api/profile/phone-verification/send-code", {
+    method: "POST", cookie: relogin.cookie, body: { smsConsent: true }
+  });
+  assert.equal(missingVerifyConfig.response.status, 503);
+  const missingVerifyCheck = await request("/api/profile/phone-verification/verify-code", {
+    method: "POST", cookie: relogin.cookie, body: { code: "123456" }
+  });
+  assert.equal(missingVerifyCheck.response.status, 503);
+  assert.equal((await request("/api/auth/me", { cookie: relogin.cookie })).result.user.phoneVerified, false);
+
+  process.env.TWILIO_ACCOUNT_SID = "AC-test";
+  process.env.TWILIO_AUTH_TOKEN = "test-token";
+  process.env.TWILIO_VERIFY_SERVICE_SID = "VA-test";
+  const originalFetch = global.fetch;
+  let verificationStatus = "pending";
+  let failNextSend = false;
+  const providerRequests = [];
+  global.fetch = async (input, options) => {
+    if (String(input).startsWith("https://verify.twilio.com/")) {
+      providerRequests.push({ url: String(input), options });
+      if (failNextSend) {
+        failNextSend = false;
+        return new Response(JSON.stringify({ message: "provider error" }), { status: 500 });
+      }
+      const result = String(input).endsWith("/Verifications")
+        ? { status: "pending" }
+        : { status: verificationStatus };
+      return new Response(JSON.stringify(result), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    return originalFetch(input, options);
+  };
+  try {
+    const sentCode = await request("/api/profile/phone-verification/send-code", {
+      method: "POST", cookie: relogin.cookie, body: { smsConsent: true }
+    });
+    assert.equal(sentCode.response.status, 200);
+    assert.equal(sentCode.result.sent, true);
+    assert.equal(providerRequests.length, 1);
+    assert.equal(providerRequests[0].url, "https://verify.twilio.com/v2/Services/VA-test/Verifications");
+    assert.equal(new URLSearchParams(providerRequests[0].options.body).get("To"), "+14155550101");
+    assert.equal(new URLSearchParams(providerRequests[0].options.body).get("Channel"), "sms");
+    assert.match(providerRequests[0].options.headers.Authorization, /^Basic /);
+
+    const duplicatePhoneAccount = await request("/api/auth/register", {
+      method: "POST",
+      body: {
+        name: "Shared Phone", email: "shared-phone@example.com", phone: "+14155550101",
+        password: "shared-phone-secure-passphrase"
+      }
+    });
+    const phoneThrottledAcrossAccounts = await request("/api/profile/phone-verification/send-code", {
+      method: "POST", cookie: duplicatePhoneAccount.cookie, body: { smsConsent: true }
+    });
+    assert.equal(phoneThrottledAcrossAccounts.response.status, 429);
+
+    const throttledCode = await request("/api/profile/phone-verification/send-code", {
+      method: "POST", cookie: relogin.cookie, body: { smsConsent: true }
+    });
+    assert.equal(throttledCode.response.status, 429);
+    assert.equal(providerRequests.length, 1);
+
+    const pendingCode = await request("/api/profile/phone-verification/verify-code", {
+      method: "POST", cookie: relogin.cookie, body: { code: "000000" }
+    });
+    assert.equal(pendingCode.response.status, 400);
+    assert.equal((await request("/api/auth/me", { cookie: relogin.cookie })).result.user.phoneVerified, false);
+
+    verificationStatus = "approved";
+    const approvedCode = await request("/api/profile/phone-verification/verify-code", {
+      method: "POST", cookie: relogin.cookie, body: { code: "123456" }
+    });
+    assert.equal(approvedCode.response.status, 200);
+    assert.equal(approvedCode.result.verified, true);
+    assert.equal(approvedCode.result.user.phoneVerified, true);
+    assert.equal(approvedCode.result.user.whatsappReminders, false);
+    assert.equal(providerRequests[2].url, "https://verify.twilio.com/v2/Services/VA-test/VerificationCheck");
+    assert.equal(new URLSearchParams(providerRequests[2].options.body).get("Code"), "123456");
+
+    const secondPhoneUser = await request("/api/auth/register", {
+      method: "POST",
+      body: {
+        name: "Phone Failure", email: "phone-failure@example.com", phone: "+14155550106",
+        password: "another-secure-passphrase"
+      }
+    });
+    failNextSend = true;
+    const providerFailure = await request("/api/profile/phone-verification/send-code", {
+      method: "POST", cookie: secondPhoneUser.cookie, body: { smsConsent: true }
+    });
+    assert.equal(providerFailure.response.status, 502);
+    assert.equal((await request("/api/auth/me", { cookie: secondPhoneUser.cookie })).result.user.phoneVerified, false);
+  } finally {
+    global.fetch = originalFetch;
+    for (const key of ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_VERIFY_SERVICE_SID"]) delete process.env[key];
+  }
+
+  const blockedWhatsappOptIn = await request("/api/profile", {
+    method: "PATCH", cookie: secondAccount.cookie, body: { whatsappReminders: true }
+  });
+  assert.equal(blockedWhatsappOptIn.response.status, 400);
+
   const crossAccountUpdate = await request(`/api/tasks/${firstAnalysis.result.tasks[0].id}`, {
     method: "PATCH", cookie: secondAccount.cookie, body: { status: "done" }
   });
@@ -156,13 +268,20 @@ test("authentication, session restoration, task access and account separation", 
 
   const preferences = await request("/api/profile", {
     method: "PATCH", cookie: relogin.cookie,
-    body: { emailReminders: false, whatsappReminders: true }
+    body: { emailReminders: false }
   });
   assert.equal(preferences.response.status, 200);
   assert.equal(preferences.result.user.emailReminders, false);
-  assert.equal(preferences.result.user.whatsappReminders, true);
+  assert.equal(preferences.result.user.whatsappReminders, false);
 
-  const firstUser = await db.findUserByEmail("ada@example.com");
+  const whatsappOptIn = await request("/api/profile", {
+    method: "PATCH", cookie: relogin.cookie, body: { whatsappReminders: true }
+  });
+  assert.equal(whatsappOptIn.response.status, 200);
+  assert.equal(whatsappOptIn.result.user.whatsappReminders, true);
+
+  const firstUser = await db.findUserByEmail("phone-failure@example.com");
+  await db.updateUserPreferences(firstUser._id, { whatsappReminders: true });
   const unverifiedHash = "unverified-whatsapp-test";
   await db.saveAnalysis({
     ownerId: firstUser._id, hash: unverifiedHash, text: "unverified whatsapp test", role: "Student",
@@ -176,6 +295,8 @@ test("authentication, session restoration, task access and account separation", 
     }
   });
   const secondUser = await db.findUserByEmail("grace@example.com");
+  assert.equal(secondUser.whatsappReminders, false);
+  assert.equal(secondUser.phoneVerified, false);
   const dueHash = "reminder-status-test";
   await db.saveAnalysis({
     ownerId: secondUser._id, hash: dueHash, text: "test reminder", role: "Student",
@@ -196,7 +317,7 @@ test("authentication, session restoration, task access and account separation", 
   assert.equal(reminderResult.tasks[0].reminders.email.status, "not_configured");
   assert.equal(reminderResult.tasks[0].reminders.whatsapp.status, "opted_out");
   const unverifiedResult = await db.getCachedAnalysis(firstUser._id, unverifiedHash, "Student");
-  assert.equal(unverifiedResult.tasks[0].reminders.email.status, "opted_out");
+  assert.equal(unverifiedResult.tasks[0].reminders.email.status, "not_configured");
   assert.equal(unverifiedResult.tasks[0].reminders.whatsapp.status, "phone_unverified");
 
   const logout = await request("/api/auth/logout", { method: "POST", cookie: relogin.cookie });

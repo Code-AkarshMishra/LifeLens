@@ -60,6 +60,11 @@ function showAuthenticated(user) {
   document.querySelector("#account-destinations").textContent = `${user.email} · ${user.phone}`;
   document.querySelector("#email-reminders").checked = user.emailReminders;
   document.querySelector("#whatsapp-reminders").checked = user.whatsappReminders;
+  document.querySelector("#whatsapp-reminders").disabled = !user.phoneVerified && !user.whatsappReminders;
+  const phoneStatus = document.querySelector("#phone-verification-status");
+  phoneStatus.textContent = user.phoneVerified ? "Phone number verified." : "Phone number is not verified.";
+  document.querySelector("#send-code-form").hidden = user.phoneVerified;
+  document.querySelector("#verify-code-form").hidden = user.phoneVerified;
 }
 
 function showSignedOut() {
@@ -153,6 +158,59 @@ document.querySelector("#preferences-form").addEventListener("submit", async (ev
   }
 });
 
+document.querySelector("#send-code-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const status = document.querySelector("#phone-verification-status");
+  const button = document.querySelector("#send-code-button");
+  if (!document.querySelector("#sms-consent").checked) {
+    status.textContent = "Agree to the one-time SMS before requesting a code.";
+    return;
+  }
+  button.disabled = true;
+  status.textContent = "Requesting code…";
+  try {
+    const response = await fetch("/api/profile/phone-verification/send-code", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ smsConsent: true })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Could not send a verification code.");
+    status.textContent = result.message;
+    document.querySelector("#sms-consent").checked = false;
+    document.querySelector("#verify-code-form").hidden = false;
+    document.querySelector("#verification-code").focus();
+  } catch (error) {
+    status.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+});
+
+document.querySelector("#verify-code-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const status = document.querySelector("#phone-verification-status");
+  const button = document.querySelector("#verify-code-button");
+  button.disabled = true;
+  status.textContent = "Checking code…";
+  try {
+    const response = await fetch("/api/profile/phone-verification/verify-code", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: document.querySelector("#verification-code").value.trim() })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Could not verify this phone number.");
+    document.querySelector("#verification-code").value = "";
+    showAuthenticated({ ...currentUser, ...result.user });
+    status.textContent = "Phone number verified. You can now separately opt in to WhatsApp reminders.";
+  } catch (error) {
+    status.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+});
+
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (character) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
@@ -180,7 +238,7 @@ function renderResult(result) {
   const taskByEvidence = new Map(tasks.map((task) => [task.evidence, task]));
   results.innerHTML = `<div class="result-kicker">Your action plan${result.cached ? " · saved analysis" : ""}</div>
     <p class="summary">${escapeHtml(result.analysis?.summary || "Review the notice details below.")}</p>
-    <p class="reminder-note">Email reminders use your saved email. WhatsApp stays paused until phone verification is available; enabled reminders are checked hourly for due tasks.</p>
+    <p class="reminder-note">Email reminders use your saved email. WhatsApp reminders require a verified phone and separate opt-in; enabled reminders are checked hourly for due tasks.</p>
     <h2 class="actions-title">What to do <small>${actions.length} ${actions.length === 1 ? "action" : "actions"}</small></h2>
     ${actions.length ? actions.map((action) => {
       const task = taskByEvidence.get(action.evidence);

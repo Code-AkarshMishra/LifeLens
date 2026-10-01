@@ -7,7 +7,8 @@ const memory = {
   tasks: new Map(),
   users: new Map(),
   usersByEmail: new Map(),
-  sessions: new Map()
+  sessions: new Map(),
+  phoneVerificationLimits: new Map()
 };
 let database;
 
@@ -94,6 +95,55 @@ async function updateUserPreferences(userId, preferences) {
   const updated = await database.collection("users").findOneAndUpdate(
     { _id: userId },
     { $set: { ...preferences, updatedAt: new Date() } },
+    { returnDocument: "after", projection: { passwordHash: 0, passwordSalt: 0 } }
+  );
+  return updated ? publicUser(updated) : null;
+}
+
+async function claimPhoneVerification(userId, phone, now = new Date()) {
+  const cooldownEnds = new Date(now.getTime() - 60 * 1000);
+  const phoneKey = crypto.createHash("sha256").update(phone).digest("hex");
+  if (!database) {
+    const user = memory.users.get(userId);
+    if (!user) return "missing";
+    if (user.phone !== phone) return "missing";
+    if (user.phoneVerified) return "verified";
+    const requestedAt = memory.phoneVerificationLimits.get(phoneKey);
+    if (requestedAt && requestedAt > cooldownEnds) return "rate_limited";
+    memory.phoneVerificationLimits.set(phoneKey, now);
+    return "claimed";
+  }
+  const user = await database.collection("users").findOne({ _id: userId, phone });
+  if (!user) return "missing";
+  if (user.phoneVerified) return "verified";
+  try {
+    const limit = await database.collection("phoneVerificationLimits").findOneAndUpdate({
+      _id: phoneKey,
+      $or: [
+        { requestedAt: { $exists: false } },
+        { requestedAt: { $lte: cooldownEnds } }
+      ]
+    }, {
+      $set: { requestedAt: now }
+    }, { upsert: true, returnDocument: "after" });
+    return limit ? "claimed" : "rate_limited";
+  } catch (error) {
+    if (error.code === 11000) return "rate_limited";
+    throw error;
+  }
+}
+
+async function markPhoneVerified(userId, phone, verifiedAt = new Date()) {
+  if (!database) {
+    const user = memory.users.get(userId);
+    if (!user || user.phone !== phone) return null;
+    user.phoneVerified = true;
+    user.phoneVerifiedAt = verifiedAt;
+    return publicUser(user);
+  }
+  const updated = await database.collection("users").findOneAndUpdate(
+    { _id: userId, phone },
+    { $set: { phoneVerified: true, phoneVerifiedAt: verifiedAt } },
     { returnDocument: "after", projection: { passwordHash: 0, passwordSalt: 0 } }
   );
   return updated ? publicUser(updated) : null;
@@ -289,7 +339,7 @@ async function markReminder(ownerId, id, channel, state) {
 }
 
 module.exports = {
-  connect, createUser, findUserByEmail, updateUserPreferences,
+  connect, createUser, findUserByEmail, updateUserPreferences, claimPhoneVerification, markPhoneVerified,
   createSession, getSessionUser, deleteSession,
   getCachedAnalysis, saveAnalysis, updateTask, getDueTasks, markReminder, claimReminder
 };

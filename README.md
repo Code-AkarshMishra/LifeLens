@@ -9,13 +9,15 @@ LifeLens turns a notice into a plain-English summary and an evidence-backed acti
 3. Fill in the credentials for the services you want to use. MongoDB is optional for local development; with no `MONGODB_URI`, the app uses an in-memory database and loses users, sessions, notices, tasks, and reminder states when it stops.
 4. Run `npm install`, then `npm start`, and open `http://localhost:3000`.
 
-Create an account with your name, email, E.164 phone number (for example `+14155552671`), and a password of at least eight characters. Email and phone are reminder destinations, not sign-in identifiers (email is used to sign in). This MVP does not verify email addresses or phone numbers with OTPs. Account passwords are scrypt-hashed; sessions use random HttpOnly cookies and expire after 30 days.
+Create an account with your name, email, E.164 phone number (for example `+14155552671`), and a password of at least eight characters. Email and phone are reminder destinations, not sign-in identifiers (email is used to sign in). Email is not verified. Account passwords are scrypt-hashed; sessions use random HttpOnly cookies and expire after 30 days.
 
 ## Accounts and reminders
 
-Registration enables email reminders by default and leaves WhatsApp reminders off. Update or withdraw either consent in Reminder preferences. Email reminders go only to the account email. WhatsApp reminders go only to the account phone and require explicit opt-in, but are currently held until a phone-verification feature exists; this MVP never sends to an unverified number. No verification code is sent.
+Registration enables email reminders by default and leaves WhatsApp reminders off. Update or withdraw either consent in Reminder preferences. Email reminders go only to the account email. To enable WhatsApp, first request a one-time SMS code in account settings and enter the code Twilio Verify sends to the saved phone. Sending that OTP requires separate explicit consent in the phone-verification panel; it does not opt in to WhatsApp reminders. Code requests are limited to one request per phone number per 60 seconds (also covering repeated requests by the same account), in addition to Twilio's limits. WhatsApp remains independently opted out until the user enables it after verification.
 
 Email reminders are sent for pending tasks due by the next day when SMTP is configured. Supply SMTP host, port, TLS mode, sender (`SMTP_FROM` or `SMTP_USER`), and credentials (`SMTP_USER`/`SMTP_PASS` if required). Use a provider-approved sender; for consumer providers, an app password may be required.
+
+Phone verification uses a Twilio Verify Service and SMS; it requires account SID, Auth Token, and Verify Service SID. The app marks a phone verified only when Twilio Verify returns `approved`. Twilio Verify failures and missing configuration are surfaced to the user without marking the phone verified.
 
 WhatsApp delivery uses Twilio credentials and an approved WhatsApp sender (`TWILIO_WHATSAPP_FROM`). Twilio's sandbox requires the recipient to opt in to the sandbox first. Production sending may require an approved sender and message templates, particularly outside the customer-service conversation window or depending on recipient country. Twilio will not be called for a phone that the app considers unverified. SMTP/Twilio failures are recorded per task and channel and retried on the next hourly scheduler cycle; missing provider configuration is recorded as not configured and is not counted as sent.
 
@@ -24,7 +26,8 @@ WhatsApp delivery uses Twilio credentials and an approved WhatsApp sender (`TWIL
 - `MONGODB_URI` and optional `MONGODB_DB` enable persistent storage for accounts, hashed sessions, documents, cached analyses, tasks, and per-channel reminder state. Without the URI, the in-memory development database is used.
 - `USE_AI=true` with `GEMINI_API_KEY` enables Gemini analysis. Gemini is optional; the local parser remains the fallback when AI is disabled, the key is absent, or AI returns an error or invalid evidence.
 - SMTP settings enable opted-in email reminders to each user's saved email.
-- Twilio settings enable the provider integration for opted-in WhatsApp reminders once the account phone has been verified. Phone verification is not implemented in this MVP, so the scheduler will not send WhatsApp messages.
+- `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_VERIFY_SERVICE_SID` enable SMS phone verification. In account settings, the user must separately consent to a one-time verification SMS and enter its code. This consent does not enable WhatsApp reminders.
+- `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_VERIFY_SERVICE_SID` enable SMS phone verification. In account settings, the user must separately consent to a one-time verification SMS and enter its code. This consent does not enable WhatsApp reminders.
 - `PORT` is read from the environment; it defaults to 3000.
 
 Never commit `.env`, paste credentials into the browser/client bundle, or store secrets in repository files. Configure production secrets using the deployment provider's secret/environment settings.
@@ -41,7 +44,7 @@ Never commit `.env`, paste credentials into the browser/client bundle, or store 
 
 - **Gemini:** Create a Google AI Studio account and API key if Gemini analysis is wanted. Set `USE_AI=true` and `GEMINI_API_KEY`; otherwise the local parser works without a key.
 - **Email:** Create an account with an SMTP provider, verify the sender/domain, and obtain the SMTP host, port, TLS setting, username, and password or app password. Set these as `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, and optionally `SMTP_FROM`. This is optional; reminder delivery won't occur without it.
-- **WhatsApp:** Create a Twilio account, obtain Account SID and Auth Token, and configure an approved WhatsApp sender. For testing, use Twilio's WhatsApp Sandbox and have each recipient complete the sandbox opt-in. Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_WHATSAPP_FROM`. WhatsApp preferences are off by default and delivery additionally awaits phone verification, which is not implemented in this MVP.
+- **SMS verification and WhatsApp:** Create a Twilio account and obtain Account SID and Auth Token. Create a Verify Service in the Twilio console and set its Service SID as `TWILIO_VERIFY_SERVICE_SID`. SMS verification codes are sent through that service after each user separately consents in account settings; sends are rate-limited by the app to one per user per 60 seconds, with Twilio applying additional limits. To deliver WhatsApp reminders, also configure an approved WhatsApp sender as `TWILIO_WHATSAPP_FROM`. For testing, use Twilio's WhatsApp Sandbox and have each recipient complete the sandbox opt-in. Users must verify their phone by SMS and separately opt in to WhatsApp reminders; neither consent implies the other.
 
 ## Deploy
 
@@ -51,7 +54,7 @@ Choose a Node.js hosting provider such as Render, Railway, or Fly.io and create 
 
 **Required for a persistent public deployment:** MongoDB Atlas account, cluster, database username/password, connection URI, and the hosting provider account/project. No GitHub deploy key is required.
 
-**Optional:** Gemini API key (AI analysis); SMTP account credentials and a verified sender (email reminders); Twilio SID/token and approved WhatsApp sender plus recipient opt-in (WhatsApp integration; sending remains paused pending phone verification).
+**Optional:** Gemini API key (AI analysis); SMTP account credentials and a verified sender (email reminders); Twilio account SID/Auth Token and Verify Service SID (consensual SMS phone verification); approved Twilio WhatsApp sender plus recipients' sandbox opt-in or applicable production approval (WhatsApp reminders).
 
 ## API
 
@@ -61,6 +64,8 @@ Choose a Node.js hosting provider such as Render, Railway, or Fly.io and create 
 - `POST /api/auth/logout` — revoke the current session and clear its cookie
 - `GET /api/auth/me` — return the signed-in account
 - `GET /api/profile` and `PATCH /api/profile` — inspect/update reminder opt-ins
+- `POST /api/profile/phone-verification/send-code` — request a Twilio Verify SMS after explicit SMS consent (60-second per-phone rate limit)
+- `POST /api/profile/phone-verification/verify-code` — check the submitted code; phone is marked verified only for Twilio status `approved`
 - `POST /api/analyze` — authenticated JSON body `{ "text": "...", "role": "Student" }`; valid roles are Student, Employee, Parent, and Customer. Returns summary, extracted actions/evidence, and tasks. Repeated text and role reuse that account's cached analysis.
 - `PATCH /api/tasks/:id` — authenticated JSON body `{ "status": "done" }` or `{ "status": "pending" }`; only the task owner can update it.
 

@@ -48,6 +48,13 @@ h1 span { color: var(--green); }
 .preferences-form input { margin: 0; accent-color: var(--green); }
 .reminder-consent, .preferences-status { margin: 0; color: #79857e; font-size: 10px; line-height: 1.6; }
 .preferences-form .text-button { justify-self: start; }
+.phone-verification { margin: 18px 0 0 36px; padding-top: 15px; border-top: 1px solid var(--line); color: #59645e; font-size: 11px; }
+.phone-verification > strong { color: var(--ink); font-size: 12px; }
+.phone-verification > .preferences-status { margin: 6px 0 10px; }
+.sms-consent { display: flex; align-items: flex-start; gap: 8px; margin: 10px 0; color: #79857e; font-size: 10px; line-height: 1.6; }
+.sms-consent input { margin: 2px 0 0; accent-color: var(--green); }
+.phone-verification .form-field { max-width: 260px; }
+.phone-verification button:disabled { opacity: .6; cursor: wait; }
 .section-head, .section-head > div { display: flex; align-items: center; }
 .section-head { justify-content: space-between; margin-bottom: 17px; }
 .section-head > div { gap: 10px; }
@@ -102,5 +109,6 @@ footer { display: flex; justify-content: space-between; padding: 45px 0 25px; co
   .priority { grid-column: 2; justify-self: start; }
   .task-meta, .evidence, .calendar-link { margin-left: 28px; }
   .preferences-form { margin-left: 0; }
+  .phone-verification { margin-left: 0; }
   footer { gap: 14px; flex-direction: column; padding-top: 35px; }
 }

@@ -6,6 +6,7 @@ const db = require("./db");
 const auth = require("./auth");
 const { analyze } = require("./ai");
 const { startScheduler } = require("./scheduler");
+const phoneVerification = require("./phone-verification");
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
@@ -84,10 +85,73 @@ app.patch("/api/profile", auth.authenticate, async (req, res, next) => {
         preferences[field] = req.body[field];
       }
     }
+    if (preferences.whatsappReminders === true && !req.user.phoneVerified) {
+      return res.status(400).json({ error: "Verify your phone before opting in to WhatsApp reminders." });
+    }
     if (!Object.keys(preferences).length) return res.status(400).json({ error: "Choose at least one reminder preference to update." });
     const user = await db.updateUserPreferences(req.userId, preferences);
     if (!user) return res.status(404).json({ error: "Profile not found." });
     res.json({ user });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/profile/phone-verification/send-code", auth.authenticate, async (req, res, next) => {
+  try {
+    if (req.body?.smsConsent !== true) {
+      return res.status(400).json({ error: "Consent to receive a one-time verification SMS before requesting a code." });
+    }
+    if (!phoneVerification.isConfigured()) {
+      return res.status(503).json({ error: "Phone verification is unavailable. Configure Twilio Verify credentials first." });
+    }
+    if (req.user.phoneVerified) return res.status(409).json({ error: "This phone number is already verified." });
+    const claim = await db.claimPhoneVerification(req.userId, req.user.phone);
+    if (claim === "verified") return res.status(409).json({ error: "This phone number is already verified." });
+    if (claim === "rate_limited") {
+      return res.status(429).json({ error: "A code was requested recently. Wait at least 60 seconds before requesting another." });
+    }
+    if (claim !== "claimed") return res.status(404).json({ error: "Profile not found." });
+    try {
+      await phoneVerification.sendCode(req.user.phone);
+    } catch (error) {
+      if (error.status === 429) {
+        return res.status(429).json({ error: "Twilio Verify rate limit reached. Wait before requesting another code." });
+      }
+      console.error(`Twilio Verify could not send a code (HTTP ${error.status || "network error"}).`);
+      return res.status(502).json({ error: "Twilio Verify could not send the code. Check the Verify service and SMS configuration." });
+    }
+    res.json({ sent: true, message: `A verification code was sent to ${req.user.phone}.` });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/profile/phone-verification/verify-code", auth.authenticate, async (req, res, next) => {
+  try {
+    const code = typeof req.body?.code === "string" ? req.body.code.trim() : "";
+    if (!/^\d{4,10}$/.test(code)) return res.status(400).json({ error: "Enter the numeric verification code from the SMS." });
+    if (!phoneVerification.isConfigured()) {
+      return res.status(503).json({ error: "Phone verification is unavailable. Configure Twilio Verify credentials first." });
+    }
+    if (req.user.phoneVerified) return res.json({ user: userProfile({ ...req.user, phoneVerified: true }) });
+    let verification;
+    try {
+      verification = await phoneVerification.checkCode(req.user.phone, code);
+    } catch (error) {
+      if (error.status === 429) {
+        return res.status(429).json({ error: "Twilio Verify rate limit reached. Wait before trying again." });
+      }
+      if (error.status === 404) return res.status(400).json({ error: "That code is invalid or expired. Request a new code and try again." });
+      console.error(`Twilio Verify could not check a code (HTTP ${error.status || "network error"}).`);
+      return res.status(502).json({ error: "Twilio Verify could not check the code. Please try again." });
+    }
+    if (verification.status !== "approved") {
+      return res.status(400).json({ error: "That code is invalid or expired. Request a new code and try again." });
+    }
+    const user = await db.markPhoneVerified(req.userId, req.user.phone);
+    if (!user) return res.status(409).json({ error: "The account phone number changed. Request a new code for the current number." });
+    res.json({ user: userProfile(user), verified: true });
   } catch (error) {
     next(error);
   }

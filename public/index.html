@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f7f8f6">
+    <meta name="description" content="Turn any notice into a clear, evidence-backed action plan.">
+    <title>LifeLens — make the next step clear</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/style.css">
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="LifeLens home"><span class="brand-mark">L</span> life<span>lens</span></a>
+      <span class="top-note"><span class="secure-dot"></span> Private by design</span>
+    </header>
+    <main class="shell">
+      <section class="intro">
+        <div class="eyebrow"><span class="eyebrow-line"></span> YOUR NEXT STEP, MADE CLEAR</div>
+        <h1>Make sense of<br><span>the fine print.</span></h1>
+        <p>Paste a notice. Get a clear summary, the actions that matter, and what happens next.</p>
+      </section>
+      <section class="workspace" aria-label="Notice analyzer">
+        <div class="input-panel">
+          <div class="section-head">
+            <div><span class="step">01</span><h2>Your notice</h2></div>
+            <button class="text-button" id="demo-button" type="button">Try a demo notice <span aria-hidden="true">↗</span></button>
+          </div>
+          <label class="sr-only" for="notice">Paste your notice</label>
+          <textarea id="notice" maxlength="50000" placeholder="Paste an email, letter, or notice here..."></textarea>
+          <div class="input-footer">
+            <span id="char-count">0 / 50,000</span>
+            <label class="role-picker" for="role">I'm a
+              <select id="role">
+                <option>Student</option><option>Employee</option><option>Parent</option><option>Customer</option>
+              </select>
+            </label>
+          </div>
+          <button class="analyze-button" id="analyze-button" type="button"><span>Find my next steps</span><span aria-hidden="true">→</span></button>
+          <p class="privacy-note"><span aria-hidden="true">✳</span> Your notice stays yours. No account needed.</p>
+        </div>
+        <section id="results" class="results" aria-live="polite" hidden></section>
+      </section>
+      <footer><span>Clarity for the things that matter.</span><span>LifeLens <span class="footer-dot">·</span> Your personal notice companion</span></footer>
+    </main>
+  </body>
+</html>

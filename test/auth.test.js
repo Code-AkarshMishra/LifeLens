@@ -48,16 +48,39 @@ test("authentication, session restoration, task access and account separation", 
   const pageResponse = await fetch(`${baseUrl}/`);
   const page = await pageResponse.text();
   assert.equal(pageResponse.status, 200);
+  const appScript = await (await fetch(`${baseUrl}/app.js`)).text();
+  const reminderScript = await (await fetch(`${baseUrl}/reminder-links.js`)).text();
+  const styleSheet = await (await fetch(`${baseUrl}/style.css`)).text();
   assert.doesNotMatch(page, /phone-verification|verification-code|sms-consent/);
   assert.match(page, /reminder-links\.js/);
+  assert.match(page, /<form id="auth-form" method="post" action="\/auth-fallback">/);
   assert.match(page, /Grounded, not guessed/);
   assert.match(page, /Try the sample plan/);
   assert.match(page, /GEMINI_API_KEY/);
   assert.match(page, /id="notice-file"/);
-  assert.match(await (await fetch(`${baseUrl}/app.js`)).text(), /All steps complete/);
-  assert.match(await (await fetch(`${baseUrl}/reminder-links.js`)).text(), /https:\/\/wa\.me/);
-  assert.match(await (await fetch(`${baseUrl}/app.js`)).text(), /whatsapp-message/);
+  assert.match(appScript, /All steps complete/);
+  assert.match(reminderScript, /https:\/\/wa\.me/);
+  assert.match(appScript, /whatsapp-message/);
+  const submitHandlerIndex = appScript.indexOf('authForm.addEventListener("submit"');
+  const reminderLookupIndex = appScript.indexOf("window.LifeLensReminderLinks");
+  assert.ok(submitHandlerIndex >= 0 && submitHandlerIndex < reminderLookupIndex);
+  assert.match(appScript.slice(submitHandlerIndex, reminderLookupIndex), /event\.preventDefault\(\)/);
+  assert.match(appScript.slice(submitHandlerIndex, reminderLookupIndex), /setAuthMode\(false\)/);
+  assert.match(styleSheet, /\.form-field\[hidden\]\s*\{\s*display:\s*none;\s*\}/);
   assert.deepEqual(await (await fetch(`${baseUrl}/api/health`)).json(), { ok: true });
+
+  const formFallback = await fetch(`${baseUrl}/auth-fallback`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      name: "Test User",
+      email: "test@example.invalid",
+      password: "not-a-real-test-password"
+    })
+  });
+  assert.equal(formFallback.status, 503);
+  assert.equal(formFallback.headers.get("location"), null);
+  assert.doesNotMatch(await formFallback.text(), /not-a-real-test-password/);
 
   const blockedAnalyze = await request("/api/analyze", {
     method: "POST", body: { text: "Submit the form by October 15, 2026.", role: "Student" }

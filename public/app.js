@@ -11,11 +11,59 @@ const nameField = document.querySelector("#name-field");
 const phoneField = document.querySelector("#phone-field");
 const fileInput = document.querySelector("#notice-file");
 const fileName = document.querySelector("#file-name");
-const { calendarUrl, whatsappUrl } = window.LifeLensReminderLinks;
 let selectedFile = null;
 let registering = false;
 let currentUser = null;
 let pendingDemo = false;
+
+authForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  authError.hidden = true;
+  const form = new FormData(authForm);
+  const payload = {
+    email: form.get("email"),
+    password: form.get("password")
+  };
+  if (registering) {
+    payload.name = form.get("name");
+    payload.phone = form.get("phone");
+  }
+  const button = document.querySelector("#auth-submit");
+  button.disabled = true;
+  try {
+    const response = await fetch(registering ? "/api/auth/register" : "/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Could not sign in.");
+    authForm.reset();
+    showAuthenticated(result.user);
+    document.querySelector("#analyzer-panel").scrollIntoView({ behavior: "smooth", block: "center" });
+  } catch (error) {
+    authError.textContent = error.message;
+    authError.hidden = false;
+  } finally {
+    button.disabled = false;
+  }
+});
+
+setAuthMode(false);
+
+function reminderLinks() {
+  const links = window.LifeLensReminderLinks;
+  if (!links) throw new Error("Reminder tools failed to load. Reload the page and try again.");
+  return links;
+}
+
+function calendarUrl(action) {
+  return reminderLinks().calendarUrl(action);
+}
+
+function whatsappUrl(task, user, customMessage) {
+  return reminderLinks().whatsappUrl(task, user, customMessage);
+}
 
 const demoNotice = `Subject: Action required — Student registration
 
@@ -167,39 +215,6 @@ async function restoreSession() {
   }
 }
 
-authForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  authError.hidden = true;
-  const form = new FormData(authForm);
-  const payload = {
-    email: form.get("email"),
-    password: form.get("password")
-  };
-  if (registering) {
-    payload.name = form.get("name");
-    payload.phone = form.get("phone");
-  }
-  const button = document.querySelector("#auth-submit");
-  button.disabled = true;
-  try {
-    const response = await fetch(registering ? "/api/auth/register" : "/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "Could not sign in.");
-    authForm.reset();
-    showAuthenticated(result.user);
-    document.querySelector("#analyzer-panel").scrollIntoView({ behavior: "smooth", block: "center" });
-  } catch (error) {
-    authError.textContent = error.message;
-    authError.hidden = false;
-  } finally {
-    button.disabled = false;
-  }
-});
-
 document.querySelector("#logout-button").addEventListener("click", async () => {
   try {
     const response = await fetch("/api/auth/logout", { method: "POST" });
@@ -313,7 +328,7 @@ function renderResult(result) {
         </form>
         ${whatsappTask ? `<details class="whatsapp-composer">
           <summary>Compose WhatsApp message</summary>
-          <label>Customize before opening<textarea class="whatsapp-message" data-whatsapp-task="${escapeHtml(task.id)}">${escapeHtml(window.LifeLensReminderLinks.whatsappMessage(whatsappTask))}</textarea></label>
+          <label>Customize before opening<textarea class="whatsapp-message" data-whatsapp-task="${escapeHtml(task.id)}">${escapeHtml(reminderLinks().whatsappMessage(whatsappTask))}</textarea></label>
           <a class="task-action-button whatsapp whatsapp-open" href="${escapeHtml(whatsapp)}" target="_blank" rel="noopener noreferrer">Open WhatsApp ↗</a>
           <p class="manual-share-note">Review the message in WhatsApp and press Send yourself. LifeLens does not send WhatsApp messages.</p>
         </details>` : ""}

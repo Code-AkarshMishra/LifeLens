@@ -11,6 +11,12 @@ const { startScheduler } = require("./scheduler");
 
 const app = express();
 app.use(express.json({ limit: "12mb" }));
+
+app.post("/auth-fallback", (req, res) => {
+  req.resume();
+  res.status(503).type("text/plain").send("LifeLens sign-in requires JavaScript. Enable JavaScript and reload the page.");
+});
+
 app.use(express.static(path.join(__dirname, "..", "public")));
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));

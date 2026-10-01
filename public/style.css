@@ -29,8 +29,25 @@ h1 { margin: 15px 0 12px; font: 700 clamp(39px, 6vw, 58px)/1.13 Manrope, sans-se
 h1 span { color: var(--green); }
 .intro p { max-width: 440px; margin: auto; color: var(--muted); font-size: 15px; line-height: 1.7; }
 .workspace { width: min(680px, 100%); margin: 0 auto; }
-.input-panel, .results { background: var(--paper); border: 1px solid #e9ece8; border-radius: 15px; box-shadow: 0 12px 38px rgba(38, 58, 45, .055); }
+.input-panel, .results, .auth-panel, .account-panel { background: var(--paper); border: 1px solid #e9ece8; border-radius: 15px; box-shadow: 0 12px 38px rgba(38, 58, 45, .055); }
 .input-panel { padding: 25px 27px 19px; }
+.auth-panel, .account-panel { margin-bottom: 15px; padding: 22px 27px; }
+.auth-description { margin: -8px 0 16px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.form-field { display: block; margin: 12px 0; color: #63716a; font-size: 11px; font-weight: 600; }
+.form-field input { display: block; width: 100%; margin-top: 6px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 7px; color: var(--ink); background: #fdfefd; font: inherit; outline: none; }
+.form-field input:focus { border-color: #8bab99; box-shadow: 0 0 0 3px rgba(87, 134, 103, .1); }
+.auth-panel .analyze-button { margin-top: 16px; }
+.account-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; }
+.account-heading > div { display: grid; grid-template-columns: 26px 1fr; align-items: center; gap: 0 10px; }
+.account-heading .step { grid-row: span 2; }
+.account-heading h2 { overflow-wrap: anywhere; }
+.account-destinations { grid-column: 2; margin: 5px 0 0; color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
+.preferences-form { display: grid; gap: 10px; margin: 17px 0 0 36px; color: #59645e; font-size: 11px; }
+.preferences-form > strong { color: var(--ink); font-size: 12px; }
+.preferences-form label { display: flex; align-items: flex-start; gap: 8px; }
+.preferences-form input { margin: 0; accent-color: var(--green); }
+.reminder-consent, .preferences-status { margin: 0; color: #79857e; font-size: 10px; line-height: 1.6; }
+.preferences-form .text-button { justify-self: start; }
 .section-head, .section-head > div { display: flex; align-items: center; }
 .section-head { justify-content: space-between; margin-bottom: 17px; }
 .section-head > div { gap: 10px; }
@@ -78,11 +95,12 @@ footer { display: flex; justify-content: space-between; padding: 45px 0 25px; co
   .intro { padding: 46px 0 27px; }
   h1 { letter-spacing: -2px; }
   .intro p { font-size: 13px; }
-  .input-panel, .results { padding: 19px 17px 16px; }
+  .input-panel, .results, .auth-panel, .account-panel { padding: 19px 17px 16px; }
   textarea { min-height: 168px; }
   .text-button { font-size: 10px; }
   .task-main { grid-template-columns: 18px 1fr; }
   .priority { grid-column: 2; justify-self: start; }
   .task-meta, .evidence, .calendar-link { margin-left: 28px; }
+  .preferences-form { margin-left: 0; }
   footer { gap: 14px; flex-direction: column; padding-top: 35px; }
 }

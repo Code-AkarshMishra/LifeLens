@@ -1,30 +1,71 @@
 # LifeLens
 
-LifeLens turns a notice into a plain-English summary and an evidence-backed action list. It includes a responsive, no-account web app, a local JavaScript parser, optional Gemini analysis, MongoDB persistence, and optional email and WhatsApp deadline reminders.
+LifeLens turns a notice into a plain-English summary and an evidence-backed action list. It includes a responsive web app, a local JavaScript parser, optional Gemini analysis, account-isolated MongoDB persistence, and optional email and WhatsApp deadline reminders.
 
 ## Run locally
 
-```sh
-npm install
-npm run dev
-```
+1. Install Node.js 18 or later.
+2. Copy `.env.example` to `.env` (for example, `Copy-Item .env.example .env` in PowerShell). `.env` is ignored by Git.
+3. Fill in the credentials for the services you want to use. MongoDB is optional for local development; with no `MONGODB_URI`, the app uses an in-memory database and loses users, sessions, notices, tasks, and reminder states when it stops.
+4. Run `npm install`, then `npm start`, and open `http://localhost:3000`.
 
-Open [http://localhost:3000](http://localhost:3000). With no configuration, LifeLens uses its local parser and an in-memory development database. In-memory data is cleared when the server restarts.
+Create an account with your name, email, E.164 phone number (for example `+14155552671`), and a password of at least eight characters. Email and phone are reminder destinations, not sign-in identifiers (email is used to sign in). This MVP does not verify email addresses or phone numbers with OTPs. Account passwords are scrypt-hashed; sessions use random HttpOnly cookies and expire after 30 days.
+
+## Accounts and reminders
+
+Registration enables email reminders by default and leaves WhatsApp reminders off. Update or withdraw either consent in Reminder preferences. Email reminders go only to the account email. WhatsApp reminders go only to the account phone and require explicit opt-in, but are currently held until a phone-verification feature exists; this MVP never sends to an unverified number. No verification code is sent.
+
+Email reminders are sent for pending tasks due by the next day when SMTP is configured. Supply SMTP host, port, TLS mode, sender (`SMTP_FROM` or `SMTP_USER`), and credentials (`SMTP_USER`/`SMTP_PASS` if required). Use a provider-approved sender; for consumer providers, an app password may be required.
+
+WhatsApp delivery uses Twilio credentials and an approved WhatsApp sender (`TWILIO_WHATSAPP_FROM`). Twilio's sandbox requires the recipient to opt in to the sandbox first. Production sending may require an approved sender and message templates, particularly outside the customer-service conversation window or depending on recipient country. Twilio will not be called for a phone that the app considers unverified. SMTP/Twilio failures are recorded per task and channel and retried on the next hourly scheduler cycle; missing provider configuration is recorded as not configured and is not counted as sent.
 
 ## Configuration
 
-Copy `.env.example` to `.env` and configure only the providers you want to use:
+- `MONGODB_URI` and optional `MONGODB_DB` enable persistent storage for accounts, hashed sessions, documents, cached analyses, tasks, and per-channel reminder state. Without the URI, the in-memory development database is used.
+- `USE_AI=true` with `GEMINI_API_KEY` enables Gemini analysis. Gemini is optional; the local parser remains the fallback when AI is disabled, the key is absent, or AI returns an error or invalid evidence.
+- SMTP settings enable opted-in email reminders to each user's saved email.
+- Twilio settings enable the provider integration for opted-in WhatsApp reminders once the account phone has been verified. Phone verification is not implemented in this MVP, so the scheduler will not send WhatsApp messages.
+- `PORT` is read from the environment; it defaults to 3000.
 
-- `MONGODB_URI` and optional `MONGODB_DB` enable MongoDB Atlas persistence for notices, cached role-specific analyses, tasks, statuses, and reminder state. Without a URI, the app clearly logs that it is using in-memory storage.
-- `USE_AI=true` with `GEMINI_API_KEY` enables Gemini analysis. The local parser runs when AI is disabled, the key is absent, or Gemini returns an error or invalid evidence.
-- SMTP settings and `REMINDER_EMAIL` enable automatic email reminders. Twilio account credentials, a WhatsApp sender, and `REMINDER_WHATSAPP_TO` enable automatic WhatsApp reminders. At startup and hourly, LifeLens checks pending tasks due within 24 hours and sends reminders through each configured channel.
+Never commit `.env`, paste credentials into the browser/client bundle, or store secrets in repository files. Configure production secrets using the deployment provider's secret/environment settings.
 
-Keep `.env` private; it is ignored by git. Never put real credentials in `.env.example` or commit them.
+## MongoDB Atlas setup
+
+1. Create a MongoDB Atlas account and a free cluster.
+2. Create a database user and strong password. This is distinct from your Atlas website login.
+3. Add your local public IP to the cluster's Network Access IP allowlist for development. For deployment, configure the deployed service's stable outbound IP(s) if available. Avoid opening database access to all IPs unless there is no safer provider-supported option and you understand the exposure.
+4. Copy the application connection string from Atlas, replace its database-user placeholders, and set it as `MONGODB_URI`; set `MONGODB_DB=lifelens` if desired. URL-encode special characters in the database user's password before inserting them into the URI.
+5. Keep the URI only in ignored local `.env` or the deployment host's secret manager/dashboard.
+
+## Optional AI and messaging accounts
+
+- **Gemini:** Create a Google AI Studio account and API key if Gemini analysis is wanted. Set `USE_AI=true` and `GEMINI_API_KEY`; otherwise the local parser works without a key.
+- **Email:** Create an account with an SMTP provider, verify the sender/domain, and obtain the SMTP host, port, TLS setting, username, and password or app password. Set these as `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, and optionally `SMTP_FROM`. This is optional; reminder delivery won't occur without it.
+- **WhatsApp:** Create a Twilio account, obtain Account SID and Auth Token, and configure an approved WhatsApp sender. For testing, use Twilio's WhatsApp Sandbox and have each recipient complete the sandbox opt-in. Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_WHATSAPP_FROM`. WhatsApp preferences are off by default and delivery additionally awaits phone verification, which is not implemented in this MVP.
+
+## Deploy
+
+Choose a Node.js hosting provider such as Render, Railway, or Fly.io and create a web service from this repository. Use `npm start` as the start command and let the host assign `PORT`. Set `NODE_ENV=production`, `MONGODB_URI`, `MONGODB_DB`, and any optional Gemini/SMTP/Twilio variables as secrets through the host dashboard; never place production secrets in GitHub files or the client bundle. Configure Atlas network access for the host's outbound IPs and keep the database restricted to the service where possible. The app serves `/api/health` as a health check; configure the host to use HTTPS so production session cookies use the `Secure` flag. Do not deploy publicly without persistent MongoDB, since in-memory accounts and data disappear on restart. A GitHub deploy key is not needed when the hosting provider is connected to the repository through its supported Git integration.
+
+### What you need to collect
+
+**Required for a persistent public deployment:** MongoDB Atlas account, cluster, database username/password, connection URI, and the hosting provider account/project. No GitHub deploy key is required.
+
+**Optional:** Gemini API key (AI analysis); SMTP account credentials and a verified sender (email reminders); Twilio SID/token and approved WhatsApp sender plus recipient opt-in (WhatsApp integration; sending remains paused pending phone verification).
 
 ## API
 
 - `GET /api/health` — service health
-- `POST /api/analyze` — JSON body `{ "text": "...", "role": "Student" }`; valid roles are Student, Employee, Parent, and Customer. Returns the summary, extracted actions and evidence, and pending tasks. Repeated text and role reuse the cached analysis.
-- `PATCH /api/tasks/:id` — JSON body `{ "status": "done" }` or `{ "status": "pending" }`
+- `POST /api/auth/register` — create an account and sign in
+- `POST /api/auth/login` — sign in with email and password
+- `POST /api/auth/logout` — revoke the current session and clear its cookie
+- `GET /api/auth/me` — return the signed-in account
+- `GET /api/profile` and `PATCH /api/profile` — inspect/update reminder opt-ins
+- `POST /api/analyze` — authenticated JSON body `{ "text": "...", "role": "Student" }`; valid roles are Student, Employee, Parent, and Customer. Returns summary, extracted actions/evidence, and tasks. Repeated text and role reuse that account's cached analysis.
+- `PATCH /api/tasks/:id` — authenticated JSON body `{ "status": "done" }` or `{ "status": "pending" }`; only the task owner can update it.
 
-Each action includes its exact supporting sentence from the original notice. Deadlines include a Google Calendar link in the web interface when a date can be identified.
+Each action includes exact supporting sentences from the source notice. Deadlines include a Google Calendar link in the web interface when a date can be identified.
+
+## Tests
+
+Run `npm test` for the built-in Node test suite, including memory-database authentication, access-control, and account-isolation checks.

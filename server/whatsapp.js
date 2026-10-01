@@ -1,9 +1,9 @@
-async function sendReminder(task) {
-  const { TWILIO_ACCOUNT_SID: sid, TWILIO_AUTH_TOKEN: token, TWILIO_WHATSAPP_FROM: from, REMINDER_WHATSAPP_TO: to } = process.env;
-  if (!sid || !token || !from || !to) return false;
+async function sendReminder(task, user) {
+  const { TWILIO_ACCOUNT_SID: sid, TWILIO_AUTH_TOKEN: token, TWILIO_WHATSAPP_FROM: from } = process.env;
+  if (!sid || !token || !from || !user?.phone) return false;
   const body = new URLSearchParams({
     From: from,
-    To: to,
+    To: `whatsapp:${user.phone}`,
     Body: `LifeLens reminder: ${task.action}\nDeadline: ${task.deadline || "See notice"}`
   });
   const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(sid)}/Messages.json`, {

@@ -24,9 +24,39 @@
         <p>Paste a notice. Get a clear summary, the actions that matter, and what happens next.</p>
       </section>
       <section class="workspace" aria-label="Notice analyzer">
-        <div class="input-panel">
+        <section id="auth-panel" class="auth-panel" aria-labelledby="auth-title">
           <div class="section-head">
-            <div><span class="step">01</span><h2>Your notice</h2></div>
+            <div><span class="step">01</span><h2 id="auth-title">Welcome back</h2></div>
+            <button id="auth-mode" class="text-button" type="button">Create account</button>
+          </div>
+          <p id="auth-description" class="auth-description">Sign in to keep your action plans private to your account.</p>
+          <form id="auth-form">
+            <label id="name-field" class="form-field" hidden>Name<input name="name" autocomplete="name" maxlength="100"></label>
+            <label id="phone-field" class="form-field" hidden>Phone number<input name="phone" type="tel" autocomplete="tel" placeholder="+14155552671"></label>
+            <label class="form-field">Email<input name="email" type="email" autocomplete="email" required maxlength="254"></label>
+            <label class="form-field">Password<input name="password" type="password" autocomplete="current-password" required minlength="8" maxlength="128"></label>
+            <button id="auth-submit" class="analyze-button" type="submit"><span>Sign in</span><span aria-hidden="true">→</span></button>
+          </form>
+          <p class="privacy-note">Email and phone are reminder destinations, not verified sign-in identities. No email or SMS verification is provided in this MVP.</p>
+          <p id="auth-error" class="error-message" role="alert" hidden></p>
+        </section>
+        <section id="account-panel" class="account-panel" hidden aria-label="Reminder preferences">
+          <div class="account-heading">
+            <div><span class="step">02</span><h2 id="account-name"></h2><p id="account-destinations" class="account-destinations"></p></div>
+            <button id="logout-button" class="text-button" type="button">Sign out</button>
+          </div>
+          <form id="preferences-form" class="preferences-form">
+            <strong>Reminder preferences</strong>
+            <label><input id="email-reminders" type="checkbox"> Email reminders to your account email</label>
+            <label><input id="whatsapp-reminders" type="checkbox"> WhatsApp reminders to your account phone</label>
+            <p class="reminder-consent">WhatsApp stays paused until your phone number can be verified. No verification code is sent by this MVP. WhatsApp also requires explicit opt-in and an approved Twilio sender; approved templates may be required outside an active conversation window or in some countries.</p>
+            <button class="text-button" type="submit">Save preferences</button>
+            <p id="preferences-status" class="preferences-status" role="status"></p>
+          </form>
+        </section>
+        <div id="analyzer-panel" class="input-panel" hidden>
+          <div class="section-head">
+            <div><span class="step">03</span><h2>Your notice</h2></div>
             <button class="text-button" id="demo-button" type="button">Try a demo notice <span aria-hidden="true">↗</span></button>
           </div>
           <label class="sr-only" for="notice">Paste your notice</label>
@@ -40,7 +70,8 @@
             </label>
           </div>
           <button class="analyze-button" id="analyze-button" type="button"><span>Find my next steps</span><span aria-hidden="true">→</span></button>
-          <p class="privacy-note"><span aria-hidden="true">✳</span> Your notice stays yours. No account needed.</p>
+          <p id="analysis-error" class="error-message" role="alert" hidden></p>
+          <p class="privacy-note"><span aria-hidden="true">✳</span> Your notice and tasks are stored privately in your account.</p>
         </div>
         <section id="results" class="results" aria-live="polite" hidden></section>
       </section>
